@@ -4,7 +4,7 @@
  * and human-in-the-loop validation between Agent 1 and Agent 2.
  */
 
-import { RequirementAgent } from './requirementAgent.js';
+import { RequirementAgent, validateScenario } from './requirementAgent.js';
 import { SdlcAgent } from './sdlcAgent.js';
 import { ClarificationAgent } from './clarificationAgent.js';
 
@@ -33,16 +33,24 @@ export class AgentOrchestrator {
       onLogUpdate([...logs]);
     };
 
-    // Step 1: Coordinator initializes workflow
+    // Step 1: Coordinator initializes workflow & validates input
     addLog('Coordinator Agent', 'Initialization', 'Received scenario specification. Validating input syntax and initializing multi-agent collaboration context.');
+    
+    const validation = validateScenario(scenarioText);
+    if (!validation.isValid) {
+      addLog('Coordinator Agent', 'Validation Rejection', `Input validation failed: ${validation.reason}`);
+      throw new Error(`Pipeline execution rejected: ${validation.reason}`);
+    }
 
     // Step 2: Agent 1 - Requirement Engineering & Extraction
+    // Unified architectural call: analyzeScenario delegates to identifyRequirements
     addLog('Requirement Extraction Agent', 'Elicitation', 'Parsing unstructured input, detecting domain context, and extracting atomic functional workflows.');
     const requirementResult = await this.requirementAgent.analyzeScenario(scenarioText);
     addLog('Requirement Extraction Agent', 'Categorization', `Extracted ${requirementResult.functionalRequirements.length} Functional Requirements and ${requirementResult.nonFunctionalRequirements.length} Non-Functional Requirements.`);
 
     // Step 3: Compliance & Security Sub-Agent
-    addLog('Compliance & Security Agent', 'Regulatory Mapping', `Mapped requirements against regulatory frameworks: ${requirementResult.metrics.regulatoryStandardsMapped.join(', ') || 'Enterprise Security Standard'}.`);
+    const regMapped = requirementResult.metrics?.regulatoryStandardsMapped?.join(', ') || 'Enterprise Security Standard';
+    addLog('Compliance & Security Agent', 'Regulatory Mapping', `Mapped requirements against regulatory frameworks: ${regMapped}.`);
 
     // Step 4: Quality & Ambiguity Inspector
     addLog('Quality & Conflict Agent', 'Quality Audit', `Quality Score: ${requirementResult.qualityReport.overallScore}/100. Testability: ${requirementResult.qualityReport.testabilityRating}. Identified ${requirementResult.qualityReport.ambiguities.length} vague terms.`);
@@ -54,12 +62,13 @@ export class AgentOrchestrator {
     }
 
     // Step 6: Agent 2 - SDLC Selection & MCDA Evaluation
+    // Unified architectural call: evaluateSDLC delegates to identifySDLC
     addLog('SDLC Selection Agent', 'Factor Analysis', 'Extracting project characteristics (stability, regulatory criticality, security risk, change frequency) for MCDA engine.');
     const sdlcResult = this.sdlcAgent.evaluateSDLC(requirementResult, customFactors);
-    addLog('SDLC Selection Agent', 'Scoring & Ranking', `Ranked SDLC models evaluated. Top recommendation: ${sdlcResult.primaryModel.name} (${sdlcResult.primaryModel.suitabilityScore}% match).`);
+    addLog('SDLC Selection Agent', 'Scoring & Ranking', `Ranked ${sdlcResult.rankedRecommendations.length} SDLC models evaluated. Top recommendation: ${sdlcResult.primaryModel.name} (${sdlcResult.primaryModel.suitabilityScore} match).`);
 
     // Step 7: Workflow Customization
-    addLog('SDLC Selection Agent', 'Workflow Synthesis', `Generated 5 project-specific SDLC phases with custom deliverables, security activities, and compliance gates.`);
+    addLog('SDLC Selection Agent', 'Workflow Synthesis', `Generated ${sdlcResult.projectWorkflow.length} project-specific SDLC phases with custom deliverables, security activities, and compliance gates.`);
 
     // Step 8: Coordinator completes orchestration
     addLog('Coordinator Agent', 'Orchestration Complete', 'All agent outputs synthesized successfully. Ready for Human-in-the-Loop review and sign-off.');

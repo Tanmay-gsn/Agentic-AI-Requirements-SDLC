@@ -9,7 +9,7 @@ export class ClarificationAgent {
     this.name = 'Adaptive Clarification & Interview Agent';
   }
 
-  generateClarifications(scenarioText, domain) {
+  generateClarifications(scenarioText, _domain) {
     const textLower = scenarioText.toLowerCase();
     const questions = [];
 
