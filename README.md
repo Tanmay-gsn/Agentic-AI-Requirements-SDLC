@@ -1,30 +1,70 @@
-# MedSpec AI — Hospital Multi-Agent Requirements Engineering & SDLC Platform
+# MedSpec AI — Hospital Requirements Engineering & SDLC Selection Platform
 
-An Agentic AI platform tailored for the **Hospital & Healthcare Industry** that automates:
-1. **Requirements Engineering (RE)**: Extracts structured Functional & Non-Functional Requirements grounded in healthcare standards (**HIPAA, NABH 5th Ed., ABDM/DPDP Act 2023, HL7 FHIR R4, DICOM, DEA EPCS, IEC 62304**), audits ambiguities and stakeholder conflicts, and generates an IEEE 830 SRS, Risk Register, and Traceability Matrix.
-2. **Hybrid SDLC Selection & Workflow Architecture**: Evaluates 8 clinical project factors using **Multi-Criteria Decision Analysis (MCDA) + 6 Deterministic Rules**, ranks all 6 SDLC models, supports live interactive factor tuning, and synthesizes a 5-phase hospital SDLC workflow with clinical safety and compliance gates.
+An Agentic AI platform tailored for the **Hospital & Healthcare sector** that automates software requirements elicitation, compliance analysis, quality auditing, and hybrid Software Development Life Cycle (SDLC) selection.
 
-## Key Capabilities
-- **PHI / PII Privacy Guardrail (`src/agents/privacyGuard.js`)**: Automatically masks patient MRN/UHID, emails, phone numbers, DOBs, and Aadhaar/SSN before inference, and blocks prompt-injection attempts.
-- **Healthcare Regulatory RAG (`src/agents/knowledgeBase.js`)**: Versioned, jurisdiction-tagged regulatory clauses retrieved per scenario with citations (`KB-HIPAA-01`, `KB-NABH-01`, `KB-FHIR-01`, etc.) and confidence scores.
-- **Optional Live Gemini LLM + Local RAG Fallback (`src/agents/requirementAgent.js`)**: Works immediately offline/without keys using the Local Healthcare RAG Engine, or paste a Gemini API key in the top bar to invoke `gemini-2.5-flash` grounded in the retrieved clauses.
-- **Adaptive Clarification Interview (`src/agents/clarificationAgent.js`)**: Detects unstated hospital dimensions (bed scale, regulatory jurisdiction, ICU RTO/RPO, HL7/FHIR integration, release cadence) and dynamically refines requirements and SDLC scores when answered.
-- **Human-in-the-Loop (HITL) Governance & Audit Trail (`src/App.jsx`, `src/agents/orchestrator.js`)**: Approve or flag individual FRs/NFRs, record reviewer SDLC sign-off, inspect the live agent audit log, and export the complete IEEE 830 Hospital SRS (`.md`).
+## Overview
+Gathering software requirements in hospitals is complex because clinical workflows involve strict patient-safety constraints, diverse stakeholders (physicians, nurses, IT architects, compliance officers), and overlapping healthcare regulations. MedSpec AI coordinates specialized agents to transform unstructured clinical scenarios or stakeholder documents into IEEE 830–aligned specifications and a justified, project-specific SDLC workflow.
 
-## How to Install Into Your Existing Vite + React Project
-1. Unzip `hospital-re-sdlc-agent.zip`.
-2. Copy `index.html`, `README.md`, `ARCHITECTURE.md`, `test_agents.mjs`, and the entire `src/` folder into your project root (overwriting the older files).
-3. Delete the unused `src/App.css` file if it is still in your `src/` folder.
-4. Run the verification suite and start the app:
+## Core Capabilities
+- **PHI / PII Privacy Guardrail:** Automatically detects and redacts sensitive patient identifiers (MRN/UHID, emails, phone numbers, DOBs, government IDs) before inference, and blocks prompt-injection attempts.
+- **Healthcare Regulatory RAG:** Retrieves versioned, jurisdiction-tagged clauses from a healthcare knowledge base (**HIPAA, NABH 5th Edition, ABDM/DPDP Act 2023, HL7 FHIR R4, DICOM, DEA EPCS, IEC 62304, ISO 25010**) to ground requirements with citations and confidence scores.
+- **Hybrid Requirements Extraction & Quality Audit (Agent 1):** Supports optional live `gemini-2.5-flash` LLM inference (via user-provided API key) alongside a local RAG-grounded engine. Produces Functional Requirements (FR), Non-Functional Requirements (NFR), ambiguity checks, stakeholder conflict detection, a Clinical Risk Register, and an IEEE 830 Requirements Traceability Matrix (RTM).
+- **Adaptive Clarification Interviews:** Identifies unstated hospital constraints (bed capacity, regulatory jurisdiction, clinical RTO/RPO, interoperability, release cadence) and dynamically updates requirements and SDLC scores when answered.
+- **Hybrid MCDA SDLC Selection (Agent 2):** Evaluates 8 quantitative clinical project factors using Multi-Criteria Decision Analysis (MCDA) and 6 deterministic rules to rank 6 SDLC models (*Waterfall, V-Model, Spiral, Agile, DevSecOps, Agile–DevSecOps Hybrid*), with live interactive factor sliders and 5-phase hospital workflows.
+- **Human-in-the-Loop (HITL) Governance & SRS Export:** Supports per-requirement approval/flagging, reviewer SDLC sign-off, a live agent audit trail, and one-click export to an IEEE 830 Markdown SRS.
 
+## Tech Stack
+- **Frontend:** React, Vite, Lucide Icons, Custom CSS
+- **Agent & Decision Layer:** Modular ES6 JavaScript (Orchestrator, Privacy Guard, Local RAG Retriever, Requirement Agent, Clarification Agent, MCDA SDLC Agent)
+- **Optional LLM Integration:** Google Gemini API (`gemini-2.5-flash`)
+- **Testing:** Node.js built-in test assertions (`node:assert/strict`)
+
+## Getting Started
+
+### Prerequisites
+- Node.js (v18 or higher)
+- npm
+
+### Installation
 ```bash
-node test_agents.mjs
-npm run dev
+npm install
 ```
 
-## Quick Demo Script for Your Presentation
-1. **Show Hospital Case Studies**: Click **Multi-Hospital EHR** and **Emergency Department (ED) Triage & ICU** to show how requirements, citations, conflicts, and SDLC recommendations change dynamically (`Agile–DevSecOps Hybrid` vs. `V-Model`).
-2. **Test PHI Masking Live**: Type `Patient MRN-44921 email patient@hospital.org phone 9876543210` into the text box and click **Run Hospital AI Agents** to show the Privacy Guardrail redacting PHI before inference.
-3. **Show Ambiguity & Conflict Detection**: Open the **Ambiguities & Conflicts** tab to show detected vague words and the *Emergency Access vs. Strict RBAC* conflict resolution.
-4. **Show Adaptive Clarification + Live Sliders**: Answer a clarification question and click **Apply Clarifications & Re-Analyze**, then drag the **Technical Uncertainty** or **Formal Verification** slider to watch the MCDA ranking shift live.
-5. **Show Human-in-the-Loop & SRS Export**: Click **Approve** on requirements, sign off on the SDLC, and click **Export IEEE 830 SRS (.md)**.
+### Run Development Server
+```bash
+npm run dev
+```
+Open the local URL shown in the terminal (typically `http://localhost:5173/`).
+
+### Run Automated Verification Tests
+```bash
+node test_agents.mjs
+```
+
+### Optional: Enable Live Gemini LLM Mode
+By default, the application runs using the built-in Local Healthcare RAG Engine with no external API key required. To enable live LLM-powered extraction, click **Optional Gemini API Key** in the top bar and paste a valid Gemini API key (held in browser session memory only).
+
+## Project Structure
+```text
+├── index.html
+├── ARCHITECTURE.md
+├── README.md
+├── test_agents.mjs
+└── src/
+    ├── main.jsx
+    ├── App.jsx
+    ├── index.css
+    ├── agents/
+    │   ├── orchestrator.js        # Central multi-agent pipeline & audit logger
+    │   ├── privacyGuard.js        # PHI/PII masking & prompt-injection guardrail
+    │   ├── knowledgeBase.js       # Versioned healthcare standards & RAG retriever
+    │   ├── requirementAgent.js    # Agent 1: FR/NFR extraction, quality & conflict audit
+    │   ├── clarificationAgent.js  # Adaptive hospital interview gap analysis
+    │   ├── sdlcAgent.js           # Agent 2: 8-factor MCDA & 6-model SDLC engine
+    │   └── presets.js             # Hospital case studies & SDLC rule profiles
+    └── utils/
+        └── srsExporter.js         # IEEE 830 Markdown SRS & audit trail exporter
+```
+
+## Documentation
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the detailed pipeline architecture and module responsibilities.
