@@ -1,7 +1,7 @@
 /**
- * Adaptive Clarification & Interview Agent
- * Detects missing dimensions or ambiguities in user input,
- * generating context-aware follow-up questions to refine requirements.
+ * Adaptive Clarification & Hospital Interview Agent
+ * Detects missing clinical, regulatory, interoperability, and operational dimensions
+ * and generates context-aware follow-up questions that feed back into RE & SDLC scoring.
  */
 
 export class ClarificationAgent {
@@ -9,67 +9,81 @@ export class ClarificationAgent {
     this.name = 'Adaptive Clarification & Interview Agent';
   }
 
-  generateClarifications(scenarioText, _domain) {
-    const textLower = scenarioText.toLowerCase();
+  generateClarifications(scenarioText, stakeholderRole = 'cmo') {
+    const textLower = (scenarioText || '').toLowerCase();
     const questions = [];
 
-    // 1. Throughput & Scalability
-    if (!textLower.includes('tps') && !textLower.includes('users') && !textLower.includes('load')) {
+    // 1. Hospital Scale & Clinical Concurrency
+    if (!textLower.includes('beds') && !textLower.includes('concurrent') && !textLower.includes('tps') && !textLower.includes('patients per day')) {
       questions.push({
-        id: 'clarif_1',
-        topic: 'Peak Throughput & Scalability',
-        question: 'What is the anticipated peak transaction throughput (TPS) and daily active user volume?',
+        id: 'hospital_scale',
+        topic: 'Hospital Scale & Peak Clinical Concurrency',
+        question: 'What is the hospital bed capacity and expected peak concurrent clinicians/patients?',
         options: [
-          'High Volume: 5,000 to 10,000+ Transactions Per Second (Continuous active-active scaling)',
-          'Medium Volume: 500 to 2,000 TPS (Standard horizontal container autoscaling)',
-          'Low/Internal Volume: Under 100 TPS (Batch/scheduled workflow)'
+          'Multi-Hospital Network (1,000+ beds, 5,000+ concurrent clinical/patient sessions)',
+          'Mid-Size Multi-Specialty Hospital (200–500 beds, 500–1,500 concurrent users)',
+          'Single Clinic / Specialty Center (< 100 beds, < 200 concurrent users)'
         ],
-        impact: 'Defines architecture scalability tier, caching strategies, and database partitioning needs.'
+        impact: 'Determines horizontal scalability, database partitioning, and load-testing NFRs.'
       });
     }
 
-    // 2. Regulatory Jurisdiction
-    if (!textLower.includes('rbi') && !textLower.includes('gdpr') && !textLower.includes('pci') && !textLower.includes('hipaa')) {
+    // 2. Primary Healthcare Regulatory Jurisdiction
+    if (!textLower.includes('hipaa') && !textLower.includes('nabh') && !textLower.includes('abdm') && !textLower.includes('iec 62304')) {
       questions.push({
-        id: 'clarif_2',
-        topic: 'Regulatory Jurisdiction & Compliance Framework',
-        question: 'Which primary regulatory framework governs this application deployment?',
+        id: 'regulatory_regime',
+        topic: 'Healthcare Regulatory Jurisdiction',
+        question: 'Which primary healthcare compliance and accreditation standards govern this hospital deployment?',
         options: [
-          'PCI-DSS v4.0 & Global Payment Directives (Zero unmasked PAN storage, HSM requirement)',
-          'Central Bank / RBI Cyber Security Framework (Mandatory domestic data localization & 2FA)',
-          'GDPR & European Privacy Directives (Explicit consent, 72-hour breach SLA, Right to Erasure)',
-          'HIPAA / Healthcare Security Standards (Protected Health Information encryption & BAA)'
+          'India: NABH 5th Edition + ABDM / DPDP Act 2023 (ABHA linkage & domestic consent artifacts)',
+          'Global / US: HIPAA Security & Privacy Rules + HITECH (ePHI encryption & 6-year audit logs)',
+          'Medical Device / Critical Care: IEC 62304 + FDA 21 CFR Part 11 (Formal V&V traceability)'
         ],
-        impact: 'Enforces statutory compliance gates and non-functional security criteria.'
+        impact: 'Selects mandatory compliance gates, retention periods, and regulatory traceability.'
       });
     }
 
-    // 3. Fallback & Disaster Recovery
-    if (!textLower.includes('rto') && !textLower.includes('failover') && !textLower.includes('disaster')) {
+    // 3. Clinical Downtime Tolerance (RTO / RPO)
+    if (!textLower.includes('rto') && !textLower.includes('rpo') && !textLower.includes('failover')) {
       questions.push({
-        id: 'clarif_3',
-        topic: 'Disaster Recovery & Data Loss Tolerance',
-        question: 'What are the required Recovery Time Objective (RTO) and Recovery Point Objective (RPO)?',
+        id: 'clinical_dr',
+        topic: 'Clinical Downtime Tolerance (RTO / RPO)',
+        question: 'What is the maximum acceptable downtime during an emergency or ICU clinical workflow?',
         options: [
-          'Zero Data Loss Mission Critical: RPO = 0, RTO < 5 minutes (Synchronous cross-region replication)',
-          'Enterprise Standard: RPO < 15 minutes, RTO < 1 hour (Automated snapshot warm failover)',
-          'Standard Batch: RPO < 24 hours, RTO < 4 hours (Nightly cold backups)'
+          'Life-Critical Zero-Data-Loss: RPO = 0, RTO < 5 min (Active-active failover + offline ward cache)',
+          'High-Availability Clinical: RPO < 15 min, RTO < 30 min (Warm standby failover)',
+          'Standard Administrative: RPO < 24 hours, RTO < 4 hours (Daily encrypted backups)'
         ],
-        impact: 'Directly dictates infrastructure budget, distributed database topology, and DR automated drills.'
+        impact: 'Directly sets availability NFRs and increases Failure Consequence weight in SDLC scoring.'
       });
     }
 
-    // 4. Release Frequency & Delivery Cadence
+    // 4. Interoperability with Existing Hospital Systems
+    if (!textLower.includes('hl7') && !textLower.includes('fhir') && !textLower.includes('dicom')) {
+      questions.push({
+        id: 'interoperability',
+        topic: 'Clinical Interoperability & Legacy HMS Integration',
+        question: 'Does this module need to integrate with existing hospital EHR, Lab (LIS), or Radiology (PACS) systems?',
+        options: [
+          'Full HL7 FHIR R4 + DICOM bi-directional integration with legacy HMS & external labs',
+          'REST API integration with internal hospital EHR and billing database only',
+          'Standalone greenfield module with CSV/PDF export only'
+        ],
+        impact: 'Adds HL7 FHIR/DICOM interface requirements and integration testing gates.'
+      });
+    }
+
+    // 5. Release Cadence & Change Frequency
     questions.push({
-      id: 'clarif_4',
-      topic: 'Deployment Cadence & Release Model',
-      question: 'How frequently is this module or functionality expected to be updated in production?',
+      id: 'release_cadence',
+      topic: 'Clinical Release Cadence & Governance',
+      question: `From the ${stakeholderRole.toUpperCase()} perspective, how often will clinical workflows or compliance rules change?`,
       options: [
-        'Continuous / Bi-weekly Sprints: Fast continuous delivery with automated canary deployments',
-        'Monthly Staged Releases: Strict regression and compliance audit sign-offs before release',
-        'Quarterly / Annual Formal Releases: Heavy formal verification with frozen baselines'
+        'Frequent / Evolving: Bi-weekly sprints with automated CI/CD security & compliance checks',
+        'Controlled Staged Releases: Monthly/Quarterly releases with formal clinical UAT sign-off',
+        'Frozen / Rigorous Baseline: Annual validated releases with exhaustive upfront approvals'
       ],
-      impact: 'Crucial input for SDLC Selection between DevSecOps Hybrid vs. V-Model.'
+      impact: 'Key decision driver between Agile–DevSecOps Hybrid, V-Model, and Waterfall.'
     });
 
     return questions;

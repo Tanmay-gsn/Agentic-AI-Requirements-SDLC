@@ -1,65 +1,30 @@
-# Dual-Agent AI System: Requirements & SDLC Identification
+# MedSpec AI — Hospital Multi-Agent Requirements Engineering & SDLC Platform
 
-A focused, lightweight Agentic-AI application with two dedicated agents strictly designed for:
-1. **Task (i)**: Identify and list software requirements (Functional & Non-Functional) for a given scenario, functionality, or module.
-2. **Task (ii)**: Identify a suitable SDLC for the above specification, complete with justification, phases, and alternative comparisons.
+An Agentic AI platform tailored for the **Hospital & Healthcare Industry** that automates:
+1. **Requirements Engineering (RE)**: Extracts structured Functional & Non-Functional Requirements grounded in healthcare standards (**HIPAA, NABH 5th Ed., ABDM/DPDP Act 2023, HL7 FHIR R4, DICOM, DEA EPCS, IEC 62304**), audits ambiguities and stakeholder conflicts, and generates an IEEE 830 SRS, Risk Register, and Traceability Matrix.
+2. **Hybrid SDLC Selection & Workflow Architecture**: Evaluates 8 clinical project factors using **Multi-Criteria Decision Analysis (MCDA) + 6 Deterministic Rules**, ranks all 6 SDLC models, supports live interactive factor tuning, and synthesizes a 5-phase hospital SDLC workflow with clinical safety and compliance gates.
 
----
+## Key Capabilities
+- **PHI / PII Privacy Guardrail (`src/agents/privacyGuard.js`)**: Automatically masks patient MRN/UHID, emails, phone numbers, DOBs, and Aadhaar/SSN before inference, and blocks prompt-injection attempts.
+- **Healthcare Regulatory RAG (`src/agents/knowledgeBase.js`)**: Versioned, jurisdiction-tagged regulatory clauses retrieved per scenario with citations (`KB-HIPAA-01`, `KB-NABH-01`, `KB-FHIR-01`, etc.) and confidence scores.
+- **Optional Live Gemini LLM + Local RAG Fallback (`src/agents/requirementAgent.js`)**: Works immediately offline/without keys using the Local Healthcare RAG Engine, or paste a Gemini API key in the top bar to invoke `gemini-2.5-flash` grounded in the retrieved clauses.
+- **Adaptive Clarification Interview (`src/agents/clarificationAgent.js`)**: Detects unstated hospital dimensions (bed scale, regulatory jurisdiction, ICU RTO/RPO, HL7/FHIR integration, release cadence) and dynamically refines requirements and SDLC scores when answered.
+- **Human-in-the-Loop (HITL) Governance & Audit Trail (`src/App.jsx`, `src/agents/orchestrator.js`)**: Approve or flag individual FRs/NFRs, record reviewer SDLC sign-off, inspect the live agent audit log, and export the complete IEEE 830 Hospital SRS (`.md`).
 
-## 🤖 The Two Agents
+## How to Install Into Your Existing Vite + React Project
+1. Unzip `hospital-re-sdlc-agent.zip`.
+2. Copy `index.html`, `README.md`, `ARCHITECTURE.md`, `test_agents.mjs`, and the entire `src/` folder into your project root (overwriting the older files).
+3. Delete the unused `src/App.css` file if it is still in your `src/` folder.
+4. Run the verification suite and start the app:
 
-### **Agent 1: Requirements Engineer**
-- **Role**: Analyzes the input scenario, module, or functionality.
-- **Output**:
-  - **Functional Requirements (FR)**: Atomic, testable requirements with IDs (`FR-01`, `FR-02`), descriptive titles, detailed behavioral specifications, and priority levels.
-  - **Non-Functional Requirements (NFR)**: Technical constraints across Security, Performance, Scalability, Availability, and Regulatory/Privacy Compliance.
-
-### **Agent 2: SDLC Selection Architect**
-- **Role**: Evaluates the specification produced by Agent 1 against engineering trade-offs, security demands, and delivery cadence.
-- **Output**:
-  - **Recommended SDLC Model** (e.g. *DevSecOps Hybrid*, *Agile (Scrum)*, *Spiral Model*, *V-Model*).
-  - **Suitability Score & Rationale**: Direct explanation of why this SDLC fits the identified requirements.
-  - **Proposed SDLC Phases**: Stepped timeline from inception to release.
-  - **Alternative Models Comparison**: Trade-off notes on other SDLC paradigms.
-
----
-
-## 🏗️ Architecture & UML Overview
-
-The system is architected as an **Agentic Pipes-and-Filters Expert System** featuring multi-agent collaboration, deterministic input guardrails, Multi-Criteria Decision Analysis (MCDA), and IEEE 830 compliant SRS export.
-
-```mermaid
-flowchart LR
-    User([User Prompt / Presets]) --> Guard[Input Guardrail & Validation]
-    Guard --> Agent1[Agent 1: Requirements Engineer]
-    Agent1 --> Clar[Clarification Agent]
-    Agent1 --> Agent2[Agent 2: SDLC Selection Architect]
-    Agent2 --> MCDA[MCDA Engine: 8 Factors -> 6 Models]
-    MCDA --> Workflow[5-Phase Project Workflow]
-    Workflow --> SRS[IEEE 830 SRS Exporter]
-    Workflow --> UI[React 19 Interactive Dashboard]
-```
-
-Detailed architectural specifications and complete UML diagrams are available in:
-👉 **[Full Architecture & UML Specification (ARCHITECTURE.md)](ARCHITECTURE.md)**
-
-- **UML Component Diagram**: System layers, modules, knowledge bases, and dependencies
-- **UML Class Diagram**: Object model, class relationships, methods, and attributes
-- **UML Sequence Diagram**: Dynamic step-by-step pipeline execution flow
-- **UML Activity Diagram**: Multi-Criteria Decision Analysis (MCDA) scoring logic and deterministic rule matching
-- **UML State Machine Diagram**: Pipeline execution lifecycle and states
-
----
-
-## 🚀 Running the App
-
-### Start Web Application
-```bash
-npm run dev
-```
-Open **`http://127.0.0.1:5173/`** in your browser.
-
-### Run Verification Test Suite
 ```bash
 node test_agents.mjs
+npm run dev
 ```
+
+## Quick Demo Script for Your Presentation
+1. **Show Hospital Case Studies**: Click **Multi-Hospital EHR** and **Emergency Department (ED) Triage & ICU** to show how requirements, citations, conflicts, and SDLC recommendations change dynamically (`Agile–DevSecOps Hybrid` vs. `V-Model`).
+2. **Test PHI Masking Live**: Type `Patient MRN-44921 email patient@hospital.org phone 9876543210` into the text box and click **Run Hospital AI Agents** to show the Privacy Guardrail redacting PHI before inference.
+3. **Show Ambiguity & Conflict Detection**: Open the **Ambiguities & Conflicts** tab to show detected vague words and the *Emergency Access vs. Strict RBAC* conflict resolution.
+4. **Show Adaptive Clarification + Live Sliders**: Answer a clarification question and click **Apply Clarifications & Re-Analyze**, then drag the **Technical Uncertainty** or **Formal Verification** slider to watch the MCDA ranking shift live.
+5. **Show Human-in-the-Loop & SRS Export**: Click **Approve** on requirements, sign off on the SDLC, and click **Export IEEE 830 SRS (.md)**.

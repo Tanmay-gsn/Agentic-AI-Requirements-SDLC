@@ -1,10 +1,13 @@
 /**
- * Agent 2: SDLC Selection Agent
- * Evaluates software requirements using Multi-Criteria Decision Analysis (MCDA)
- * to score and rank ALL lifecycle models (Waterfall, V-Model, Spiral, Agile, DevSecOps, Agile-DevSecOps Hybrid).
+ * Agent 2: Hospital SDLC Selection & Workflow Architecture Agent
+ * Hybrid engine combining:
+ * 1. Quantitative 8-Factor Extraction (with healthcare signals + clarification answers + live UI slider overrides)
+ * 2. Multi-Criteria Decision Analysis (MCDA) across all 6 SDLC models
+ * 3. Deterministic Specification Rule Matching
+ * 4. Hospital-Tailored 5-Phase SDLC Workflow with clinical safety & compliance gates
  */
 
-import { validateScenario } from './requirementAgent.js';
+import { validateHospitalScenario } from './privacyGuard.js';
 
 export const SDLC_MODEL_DEFINITIONS = {
   WATERFALL: 'Waterfall',
@@ -17,81 +20,22 @@ export const SDLC_MODEL_DEFINITIONS = {
 
 export class SdlcAgent {
   constructor() {
-    this.name = 'SDLC Selection Agent';
+    this.name = 'Hospital SDLC Selection Architect';
   }
 
-  /**
-   * Evaluates requirements and selects SDLC models using MCDA scoring
-   */
-  evaluateSDLC(arg1, arg2, arg3) {
-    return this._processSDLC(arg1, arg2, arg3);
-  }
-
-  /**
-   * Consistent alias for identifySDLC
-   */
-  identifySDLC(arg1, arg2, arg3) {
-    return this._processSDLC(arg1, arg2, arg3);
-  }
-
-  /**
-   * Internal processor handling flexible signatures
-   */
-  _processSDLC(arg1, arg2, arg3) {
-    let scenarioText = '';
-    let requirementData = null;
-    let customFactors = {};
-
-    if (typeof arg1 === 'string') {
-      scenarioText = arg1;
-      if (arg2 && (arg2.functionalRequirements || arg2.nonFunctionalRequirements)) {
-        requirementData = arg2;
-        customFactors = arg3 || {};
-      } else if (arg2 && typeof arg2 === 'object') {
-        customFactors = arg2;
-      }
-    } else if (arg1 && typeof arg1 === 'object') {
-      requirementData = arg1;
-      scenarioText = requirementData.scenario || '';
-      customFactors = arg2 || {};
-    }
-
-    // Validation check - reject invalid/non-software input (No Agile fallback!)
+  evaluateSDLC(requirementData, customFactors = {}, clarificationAnswers = {}) {
+    const scenarioText = requirementData?.scenario || '';
     if (scenarioText) {
-      const validation = validateScenario(scenarioText);
+      const validation = validateHospitalScenario(scenarioText);
       if (!validation.isValid) {
         throw new Error(`SDLC Evaluation rejected: ${validation.reason}`);
       }
     }
 
-    if (!requirementData || (!requirementData.functionalRequirements?.length && !requirementData.nonFunctionalRequirements?.length)) {
-      if (!scenarioText) {
-        throw new Error('SDLC Evaluation rejected: Valid software requirements must be provided.');
-      }
-    }
-
-    // 1. Resolve Factors (from customFactors or extract deterministically)
-    const evaluatedFactors = this._extractFactors(scenarioText, requirementData, customFactors);
-
-    // 2. Perform MCDA Scoring on all models
-    const rankedRecommendations = this._performMCDA(scenarioText, requirementData, evaluatedFactors);
-
-    // 3. Top recommended model
+    const evaluatedFactors = this._extractFactors(scenarioText, customFactors, clarificationAnswers);
+    const rankedRecommendations = this._performMCDA(scenarioText, evaluatedFactors, customFactors);
     const primaryModel = rankedRecommendations[0];
-
-    // 4. Generate project workflow & key phases
-    const projectWorkflow = this._generateWorkflowPhases(primaryModel.name, evaluatedFactors);
-    const keyPhases = projectWorkflow.map(p => ({
-      phase: `Phase ${p.phaseNumber}: ${p.phaseName}`,
-      description: p.objective
-    }));
-
-    // 5. Alternatives (for backwards compatibility)
-    const alternatives = rankedRecommendations.slice(1, 4).map(r => ({
-      name: r.name,
-      suitability: r.suitabilityScore,
-      note: r.rationale
-    }));
+    const projectWorkflow = this._generateHospitalWorkflow(primaryModel.name);
 
     return {
       recommendedModel: primaryModel.name,
@@ -100,101 +44,90 @@ export class SdlcAgent {
       primaryModel,
       rankedRecommendations,
       evaluatedFactors,
-      keyPhases,
-      projectWorkflow,
-      alternatives
+      projectWorkflow
     };
   }
 
-  /**
-   * Deterministically extracts or normalizes the 8 MCDA factors (0 to 100)
-   */
-  _extractFactors(scenarioText, requirementData, customFactors = {}) {
-    const { functionalRequirements = [], nonFunctionalRequirements = [] } = requirementData || {};
+  _extractFactors(scenarioText, customFactors = {}, clarificationAnswers = {}) {
     const fullText = [
       scenarioText || '',
-      ...functionalRequirements.map(f => (f.title || '') + ' ' + (f.statement || f.description || '')),
-      ...nonFunctionalRequirements.map(n => (n.title || '') + ' ' + (n.statement || n.description || ''))
+      ...Object.values(clarificationAnswers || {})
     ].join(' ').toLowerCase();
 
-    // Helper to clamp values
-    const clamp = (val, min = 0, max = 100) => Math.min(Math.max(Math.round(val), min), max);
+    const clamp = (val) => Math.min(Math.max(Math.round(val), 0), 100);
 
-    // Default factors baseline
-    let stability = 50;
+    let stability = 52;
     let changeFreq = 50;
-    let regulatory = 35;
-    let secRisk = 35;
+    let regulatory = 45;
+    let secRisk = 50;
     let techUncertainty = 30;
-    let failConsequence = 45;
-    let contDeploy = 40;
-    let formalVerif = 40;
+    let failConsequence = 50;
+    let contDeploy = 45;
+    let formalVerif = 45;
 
-    // (A) Stability & Approvals vs. Change Frequency
-    if (fullText.includes('stable requirements') || fullText.includes('fixed scope') || fullText.includes('extensive approvals') || fullText.includes('frozen') || fullText.includes('well-defined')) {
+    // Stability vs Change Frequency
+    if (/stable requirements|fixed scope|extensive approvals|frozen|annual validated|statutory.*reporting/.test(fullText)) {
       stability = 92;
       changeFreq = 18;
-      formalVerif += 25;
+      formalVerif = Math.max(formalVerif, 78);
     }
-    if (fullText.includes('frequently changing') || fullText.includes('evolving requirements') || fullText.includes('rapidly changing') || fullText.includes('fluid') || fullText.includes('sprints')) {
-      changeFreq = 88;
-      stability = 25;
-    }
-
-    // (B) Formal Verification & Validation
-    if (fullText.includes('strict verification') || fullText.includes('verification/validation') || fullText.includes('v-model') || fullText.includes('formal verification') || fullText.includes('iso 26262') || fullText.includes('do-178')) {
-      formalVerif = 95;
-      failConsequence = Math.max(failConsequence, 85);
-      stability = Math.max(stability, 65);
+    if (/frequently changing|evolving requirements|rapidly changing|bi-weekly sprints|ux experiments|agile/.test(fullText)) {
+      changeFreq = 86;
+      stability = 26;
     }
 
-    // (C) Technical Uncertainty & Research
-    if (fullText.includes('uncertainty') || fullText.includes('technical risk') || fullText.includes('research') || fullText.includes('experimental') || fullText.includes('unproven') || fullText.includes('novel')) {
+    // Strict V&V / Life-Critical Medical Devices
+    if (/strict verification|verification\/validation|v-model|formal verification|iec 62304|ventilator|infusion pump|life-critical/.test(fullText)) {
+      formalVerif = 96;
+      failConsequence = 98;
+      stability = Math.max(stability, 74);
+      changeFreq = Math.min(changeFreq, 30);
+    }
+
+    // Technical Uncertainty / Clinical R&D
+    if (/high uncertainty|technical risk|experimental|novel ai|research platform|unproven|sepsis prediction/.test(fullText)) {
       techUncertainty = 92;
-      failConsequence = Math.max(failConsequence, 80);
+      failConsequence = Math.max(failConsequence, 84);
     }
 
-    // (D) Regulatory Criticality
-    if (fullText.includes('pci-dss') || fullText.includes('pci') || fullText.includes('hipaa') || fullText.includes('gdpr') || fullText.includes('rbi') || fullText.includes('fda') || fullText.includes('statutory') || fullText.includes('regulatory') || fullText.includes('high regulation')) {
+    // Healthcare Regulatory Criticality
+    if (/hipaa|nabh|abdm|dpdp|fda|epcs|high regulation|regulated|accreditation|compliance|statutory/.test(fullText)) {
       regulatory = 94;
       formalVerif = Math.max(formalVerif, 80);
     }
 
-    // (E) Security Risk
-    if (fullText.includes('security') || fullText.includes('fraud') || fullText.includes('encryption') || fullText.includes('payment') || fullText.includes('bank') || fullText.includes('vulnerability') || fullText.includes('secure')) {
+    // Security & ePHI Risk
+    if (/ephi|phi|encryption|aes-256|rbac|break-glass|2fa|mfa|sast|dast|secure/.test(fullText)) {
       secRisk = 92;
     }
 
-    // (F) Continuous Deployment
-    if (fullText.includes('continuous deployment') || fullText.includes('continuous secure deployment') || fullText.includes('ci/cd') || fullText.includes('continuous delivery') || fullText.includes('canary') || fullText.includes('active-active')) {
+    // Continuous Deployment
+    if (/continuous secure deployment|continuous deployment|ci\/cd|canary|microservices|cloud-native/.test(fullText)) {
       contDeploy = 95;
-      secRisk = Math.max(secRisk, 75);
+      secRisk = Math.max(secRisk, 86);
     }
 
-    // (G) Failure Consequence
-    if (fullText.includes('mission-critical') || fullText.includes('high availability') || fullText.includes('zero plain-text') || fullText.includes('failover') || fullText.includes('sub-50ms')) {
-      failConsequence = 92;
+    // Failure Consequence (ICU, ER, Zero Data Loss)
+    if (/icu|emergency|triage|rpo = 0|99\.99%|zero data loss|patient safety|drug-to-drug/.test(fullText)) {
+      failConsequence = Math.max(failConsequence, 94);
     }
 
-    // Override with customFactors if provided (supports aliases like complexity, continuousDeliveryNeed)
     return {
       requirementStability: customFactors.requirementStability !== undefined ? clamp(customFactors.requirementStability) : clamp(stability),
       changeFrequency: customFactors.changeFrequency !== undefined ? clamp(customFactors.changeFrequency) : clamp(changeFreq),
       regulatoryCriticality: customFactors.regulatoryCriticality !== undefined ? clamp(customFactors.regulatoryCriticality) : clamp(regulatory),
       securityRisk: customFactors.securityRisk !== undefined ? clamp(customFactors.securityRisk) : clamp(secRisk),
-      technicalUncertainty: customFactors.technicalUncertainty !== undefined ? clamp(customFactors.technicalUncertainty) : (customFactors.complexity !== undefined ? clamp(customFactors.complexity) : clamp(techUncertainty)),
+      technicalUncertainty: customFactors.technicalUncertainty !== undefined ? clamp(customFactors.technicalUncertainty) : clamp(techUncertainty),
       failureConsequence: customFactors.failureConsequence !== undefined ? clamp(customFactors.failureConsequence) : clamp(failConsequence),
-      continuousDeploymentNeed: customFactors.continuousDeploymentNeed !== undefined ? clamp(customFactors.continuousDeploymentNeed) : (customFactors.continuousDeliveryNeed !== undefined ? clamp(customFactors.continuousDeliveryNeed) : clamp(contDeploy)),
+      continuousDeploymentNeed: customFactors.continuousDeploymentNeed !== undefined ? clamp(customFactors.continuousDeploymentNeed) : clamp(contDeploy),
       formalVerificationNeed: customFactors.formalVerificationNeed !== undefined ? clamp(customFactors.formalVerificationNeed) : clamp(formalVerif)
     };
   }
 
-  /**
-   * Multi-Criteria Decision Analysis (MCDA) Scoring Engine
-   * Scores ALL 6 candidate models and applies deterministic specification rules
-   */
-  _performMCDA(scenarioText, requirementData, factors) {
+  _performMCDA(scenarioText, factors, customFactors = {}) {
     const textLower = (scenarioText || '').toLowerCase();
+    const isManualSliderTuning = Object.keys(customFactors || {}).length > 0 && customFactors._fromSlider === true;
+
     const {
       requirementStability: stab,
       changeFrequency: chg,
@@ -206,275 +139,191 @@ export class SdlcAgent {
       formalVerificationNeed: verif
     } = factors;
 
-    // 1. Raw MCDA Utility Formulation for each model
-    // Model A: Waterfall
-    // High stability, low change frequency, high formal approval, low technical uncertainty
+    // 1. Raw MCDA Weighted Utility Scores
     let waterfallScore = (stab * 0.38) + (verif * 0.22) + ((100 - chg) * 0.25) + ((100 - unc) * 0.15);
-
-    // Model B: V-Model
-    // Strict verification and validation, high failure consequence, high regulatory criticality, moderate-high stability
     let vModelScore = (verif * 0.38) + (fail * 0.22) + (reg * 0.18) + (stab * 0.12) + ((100 - chg) * 0.10);
-
-    // Model C: Spiral
-    // High technical uncertainty, high failure consequence, progressive risk mitigation cycles
     let spiralScore = (unc * 0.44) + (fail * 0.24) + ((100 - stab) * 0.16) + (chg * 0.16);
-
-    // Model D: Agile (Scrum)
-    // Frequently changing requirements, low stability demand, moderate continuous delivery
     let agileScore = (chg * 0.42) + ((100 - stab) * 0.26) + (deploy * 0.20) + ((100 - verif) * 0.12);
-    // Penalty if high regulatory & security without DevSecOps
-    if (reg > 75 || sec > 75) {
-      agileScore -= 15;
-    }
-
-    // Model E: DevSecOps
-    // Continuous secure deployment, high security risk, high continuous delivery, moderate-high change frequency
+    if (reg > 78 || sec > 80) agileScore -= 16;
     let devSecOpsScore = (deploy * 0.38) + (sec * 0.32) + (chg * 0.18) + ((100 - stab) * 0.12);
-
-    // Model F: Agile-DevSecOps Hybrid
-    // High regulation + evolving requirements, high security, continuous deployment and compliance gates
     let hybridScore = (reg * 0.28) + (sec * 0.24) + (chg * 0.22) + (deploy * 0.14) + (verif * 0.12);
 
-    // 2. Deterministic Rule Matching for Specification Examples
+    // 2. Deterministic Specification Rules (bypass text-only override when user drags sliders)
     let triggeredRule = null;
 
-    // Rule 1: Stable requirements + extensive approvals → Waterfall
-    const isWaterfallRule = (textLower.includes('stable requirements') && (textLower.includes('approvals') || textLower.includes('extensive approvals'))) ||
-      (stab >= 80 && chg <= 30 && verif >= 60);
+    const isWaterfallRule = (!isManualSliderTuning && textLower.includes('stable requirements') && textLower.includes('approvals')) ||
+      (stab >= 82 && chg <= 28 && verif >= 65 && fail < 90);
 
-    // Rule 2: Strict verification/validation → V-Model
-    const isVModelRule = (textLower.includes('strict verification') || textLower.includes('verification/validation') || (textLower.includes('verification') && textLower.includes('validation'))) ||
-      (verif >= 85 && fail >= 70 && unc < 70 && chg < 60);
+    const isVModelRule = (!isManualSliderTuning && (textLower.includes('strict verification') || textLower.includes('verification/validation'))) ||
+      (verif >= 88 && fail >= 85 && unc < 70 && chg <= 40);
 
-    // Rule 3: High uncertainty/technical risk → Spiral
-    const isSpiralRule = (textLower.includes('high uncertainty') || textLower.includes('technical risk') || (textLower.includes('uncertainty') && textLower.includes('risk'))) ||
-      (unc >= 75);
+    const isSpiralRule = (!isManualSliderTuning && (textLower.includes('high uncertainty') || textLower.includes('technical risk'))) ||
+      (unc >= 78);
 
-    // Rule 4: High regulation + evolving requirements → Agile–V-Model/DevSecOps hybrid
-    const isHybridRule = ((textLower.includes('high regulation') || textLower.includes('regulated')) && (textLower.includes('evolving') || textLower.includes('changing'))) ||
-      (reg >= 70 && chg >= 55);
+    const isHybridRule = (!isManualSliderTuning && (textLower.includes('high regulation') || textLower.includes('regulated')) && (textLower.includes('evolving') || textLower.includes('changing'))) ||
+      (reg >= 80 && chg >= 58 && verif >= 70);
 
-    // Rule 5: Continuous secure deployment → DevSecOps
-    const isDevSecOpsRule = (textLower.includes('continuous secure deployment') || (textLower.includes('continuous deployment') && textLower.includes('secure'))) ||
-      (deploy >= 80 && sec >= 75 && reg < 70 && verif < 85);
+    const isDevSecOpsRule = (!isManualSliderTuning && textLower.includes('continuous secure deployment')) ||
+      (deploy >= 85 && sec >= 80 && reg < 90 && verif < 85);
 
-    // Rule 6: Frequently changing requirements → Agile
-    const isAgileRule = (textLower.includes('frequently changing') || (textLower.includes('changing requirements') && !textLower.includes('regulation') && !textLower.includes('secure deployment'))) ||
-      (chg >= 70 && reg < 70 && sec < 75);
+    const isAgileRule = (!isManualSliderTuning && textLower.includes('frequently changing') && !textLower.includes('regulation') && !textLower.includes('secure deployment')) ||
+      (chg >= 72 && reg < 75 && sec < 78);
 
-    // Apply rule overrides deterministically
     if (isWaterfallRule) {
       triggeredRule = 'Stable requirements + extensive approvals → Waterfall';
       waterfallScore = 96;
-      vModelScore = Math.min(vModelScore, 86);
+      vModelScore = Math.min(vModelScore, 85);
       hybridScore = Math.min(hybridScore, 68);
       agileScore = Math.min(agileScore, 42);
-      spiralScore = Math.min(spiralScore, 60);
-      devSecOpsScore = Math.min(devSecOpsScore, 55);
     } else if (isVModelRule) {
       triggeredRule = 'Strict verification/validation → V-Model';
       vModelScore = 96;
-      waterfallScore = Math.min(waterfallScore, 82);
-      hybridScore = Math.min(hybridScore, 85);
-      spiralScore = Math.min(spiralScore, 65);
+      hybridScore = Math.min(hybridScore, 84);
+      waterfallScore = Math.min(waterfallScore, 80);
       agileScore = Math.min(agileScore, 40);
-      devSecOpsScore = Math.min(devSecOpsScore, 60);
     } else if (isSpiralRule) {
-      triggeredRule = 'High uncertainty/technical risk → Spiral';
+      triggeredRule = 'High uncertainty/technical risk → Spiral Model';
       spiralScore = 96;
       hybridScore = Math.min(hybridScore, 78);
-      agileScore = Math.min(agileScore, 74);
-      devSecOpsScore = Math.min(devSecOpsScore, 70);
-      vModelScore = Math.min(vModelScore, 62);
-      waterfallScore = Math.min(waterfallScore, 45);
+      agileScore = Math.min(agileScore, 72);
+      waterfallScore = Math.min(waterfallScore, 44);
     } else if (isHybridRule) {
-      triggeredRule = 'High regulation + evolving requirements → Agile–V-Model/DevSecOps hybrid';
+      triggeredRule = 'High regulation + evolving requirements → Agile–DevSecOps Hybrid';
       hybridScore = 96;
       devSecOpsScore = Math.min(devSecOpsScore, 88);
       vModelScore = Math.min(vModelScore, 82);
-      agileScore = Math.min(agileScore, 68);
-      spiralScore = Math.min(spiralScore, 64);
-      waterfallScore = Math.min(waterfallScore, 52);
+      agileScore = Math.min(agileScore, 66);
     } else if (isDevSecOpsRule) {
       triggeredRule = 'Continuous secure deployment → DevSecOps';
       devSecOpsScore = 96;
       hybridScore = Math.min(hybridScore, 88);
-      agileScore = Math.min(agileScore, 78);
-      spiralScore = Math.min(spiralScore, 65);
-      vModelScore = Math.min(vModelScore, 58);
-      waterfallScore = Math.min(waterfallScore, 42);
+      agileScore = Math.min(agileScore, 76);
     } else if (isAgileRule) {
-      triggeredRule = 'Frequently changing requirements → Agile';
+      triggeredRule = 'Frequently changing requirements → Agile (Scrum)';
       agileScore = 95;
       devSecOpsScore = Math.min(devSecOpsScore, 82);
-      hybridScore = Math.min(hybridScore, 76);
-      spiralScore = Math.min(spiralScore, 68);
-      vModelScore = Math.min(vModelScore, 48);
-      waterfallScore = Math.min(waterfallScore, 38);
+      hybridScore = Math.min(hybridScore, 74);
     }
 
-    // 3. Assemble and build comprehensive rationales for all models
     const models = [
       {
-        id: 'waterfall',
-        name: SDLC_MODEL_DEFINITIONS.WATERFALL,
-        rawScore: Math.round(waterfallScore),
+        id: 'agile_devsecops_hybrid',
+        name: SDLC_MODEL_DEFINITIONS.AGILE_DEVSECOPS_HYBRID,
+        rawScore: Math.round(hybridScore),
         pros: [
-          'Crystal-clear milestones, documentation baselines, and formal sign-offs',
-          'Disciplined budget and resource predictability upfront',
-          'Easy to manage for non-technical stakeholders with fixed timelines'
+          'Unites clinical sprint agility with automated HIPAA/NABH compliance-as-code gates',
+          'Embeds shift-left PHI security scanning (SAST/DAST) in every release cycle',
+          'Maintains continuous audit readiness while adapting to new hospital workflows'
         ],
         cons: [
-          'High cost and disruption if requirements change mid-project',
-          'Working software only visible late in the lifecycle'
+          'Requires close coordination between Hospital IT, Clinical Safety, and Compliance',
+          'Higher upfront CI/CD automation setup cost'
         ],
-        rationaleGenerator: (score) => {
-          if (isWaterfallRule) {
-            return `Deterministic Rule Triggered: Specifications demand stable requirements and extensive approvals. Waterfall enforces rigid phase gate reviews (Requirements → Design → Implementation → Verification), ensuring all stakeholder approvals are secured before advancing.`;
-          }
-          if (score >= 80) {
-            return `Waterfall scored ${score}% due to high requirement stability (${stab}%) and structured approval baselines, minimizing change risks.`;
-          }
-          return `Waterfall scored ${score}%. It is poorly suited because requirement volatility (${chg}%) or continuous deployment needs (${deploy}%) require iterative flexibility that linear sequential phases cannot accommodate.`;
-        }
+        rationale: isHybridRule
+          ? `Balances high healthcare regulation (${reg}%) and ePHI security (${sec}%) with evolving clinical requirements (${chg}%), embedding automated compliance gates into iterative sprints.`
+          : `Scored ${Math.round(hybridScore)}% based on combined regulatory criticality (${reg}%), security risk (${sec}%), and requirement change rate (${chg}%).`
       },
       {
         id: 'v_model',
         name: SDLC_MODEL_DEFINITIONS.V_MODEL,
         rawScore: Math.round(vModelScore),
         pros: [
-          'Strict bilateral verification and validation mapping at every abstraction tier',
-          'Traceability from User Requirements directly to Acceptance Testing',
-          'Early test plan formulation prevents defect propagation'
+          'Maps every clinical safety requirement 1-to-1 to formal verification & validation tests',
+          'Ideal for IEC 62304 life-critical ICU/ventilator and high-assurance hospital software',
+          'Produces exhaustive traceability artifacts required for regulatory certification'
         ],
         cons: [
-          'Rigid against evolving requirements once implementation begins',
-          'High documentation overhead not suited for rapid consumer MVPs'
+          'Rigid against frequent mid-project clinical workflow changes',
+          'Working software reaches clinicians later in the lifecycle'
         ],
-        rationaleGenerator: (score) => {
-          if (isVModelRule) {
-            return `Deterministic Rule Triggered: Strict verification/validation criteria identified. V-Model strictly pairs each development phase (Requirements, Architecture, Design) directly with its corresponding verification testing tier (Acceptance, System, Integration, Unit Testing), ensuring zero-defect safety assurance.`;
-          }
-          if (score >= 80) {
-            return `V-Model scored ${score}% based on high formal verification demand (${verif}%) and severe failure consequences (${fail}%), ensuring exhaustive test traceability.`;
-          }
-          return `V-Model scored ${score}%. While excellent for high-assurance test traceability, its rigidity limits adaptability under fast sprint iterations and changing market requirements.`;
-        }
-      },
-      {
-        id: 'spiral',
-        name: SDLC_MODEL_DEFINITIONS.SPIRAL,
-        rawScore: Math.round(spiralScore),
-        pros: [
-          'Explicit risk analysis and risk mitigation in every iterative loop',
-          'Progressive evolutionary prototyping reduces technical blockers early',
-          'Accommodates complex, unproven algorithmic exploration'
-        ],
-        cons: [
-          'High management overhead requiring seasoned risk assessment specialists',
-          'Can be expensive and indefinite if spiral stopping criteria are ambiguous'
-        ],
-        rationaleGenerator: (score) => {
-          if (isSpiralRule) {
-            return `Deterministic Rule Triggered: High technical uncertainty and risk identified. The Spiral model centers each cycle around risk analysis, iterative prototyping, and stakeholder evaluation, actively resolving critical technical unknowns before heavy engineering investment.`;
-          }
-          if (score >= 80) {
-            return `Spiral Model scored ${score}% due to elevated technical uncertainty (${unc}%) and risk profile (${fail}%), warranting progressive prototyping spirals.`;
-          }
-          return `Spiral Model scored ${score}%. The project exhibits well-understood architectural patterns, making Spiral's heavy risk-modeling cycles unnecessary overhead compared to agile execution.`;
-        }
-      },
-      {
-        id: 'agile',
-        name: SDLC_MODEL_DEFINITIONS.AGILE,
-        rawScore: Math.round(agileScore),
-        pros: [
-          'Rapid 2-week sprint delivery of working, testable software increments',
-          'Exceptional adaptability to shifting customer priorities and market feedback',
-          'Direct, continuous stakeholder collaboration and transparent backlog grooming'
-        ],
-        cons: [
-          'Requires explicit governance overlays to maintain statutory audit compliance',
-          'Scope creep risk if sprint backlog prioritization is loose'
-        ],
-        rationaleGenerator: (score) => {
-          if (isAgileRule) {
-            return `Deterministic Rule Triggered: Frequently changing requirements identified. Agile (Scrum) thrives under requirement volatility (${chg}%), leveraging 2-week iterative sprints, continuous backlog grooming, and frequent stakeholder feedback to pivot rapidly without waste.`;
-          }
-          if (score >= 80) {
-            return `Agile scored ${score}% due to high change frequency (${chg}%) and demand for iterative customer-facing feature delivery.`;
-          }
-          return `Agile scored ${score}%. Standard Agile lacks native statutory compliance gates and formal verification controls needed for high-criticality regulatory constraints (${reg}%).`;
-        }
+        rationale: isVModelRule
+          ? `Strict clinical verification/validation (${verif}%) and life-critical failure consequence (${fail}%) require bilateral V&V traceability before deployment.`
+          : `Scored ${Math.round(vModelScore)}% reflecting formal verification demand (${verif}%) and failure severity (${fail}%).`
       },
       {
         id: 'devsecops',
         name: SDLC_MODEL_DEFINITIONS.DEVSECOPS,
         rawScore: Math.round(devSecOpsScore),
         pros: [
-          'Shift-left security integrating SAST, DAST, and container vulnerability scanning into CI/CD',
-          'Automated deployment pipelines enabling rapid, zero-downtime releases',
-          'Real-time runtime observability, automated policy-as-code, and fast incident response'
+          'Automated security gates (SAST, DAST, secrets & container scans) in CI/CD',
+          'Supports zero-downtime canary rollouts for 24/7 hospital cloud services',
+          'Continuous runtime monitoring and fast vulnerability patching'
         ],
         cons: [
-          'Requires mature automated testing infrastructure and CI/CD tooling',
-          'Demands strong cross-functional engineering culture between Dev, Sec, and Ops'
+          'Needs mature automated test coverage and DevSecOps engineering skills',
+          'Less suited for heavily frozen, upfront-approved statutory systems'
         ],
-        rationaleGenerator: (score) => {
-          if (isDevSecOpsRule) {
-            return `Deterministic Rule Triggered: Continuous secure deployment criteria identified. DevSecOps embeds automated security gates (SAST/DAST, secrets detection, dependency scanning) directly into CI/CD release pipelines, ensuring zero-touch secure continuous delivery.`;
-          }
-          if (score >= 80) {
-            return `DevSecOps scored ${score}% reflecting high continuous deployment need (${deploy}%) and substantial cybersecurity risks (${sec}%).`;
-          }
-          return `DevSecOps scored ${score}%. It provides powerful automation, but the project requires heavy formal verification documentation and approval gates before production releases.`;
-        }
+        rationale: isDevSecOpsRule
+          ? `High continuous deployment need (${deploy}%) paired with strong ePHI security risk (${sec}%) favors automated Security-as-Code CI/CD pipelines.`
+          : `Scored ${Math.round(devSecOpsScore)}% based on deployment frequency (${deploy}%) and security posture (${sec}%).`
       },
       {
-        id: 'agile_devsecops_hybrid',
-        name: SDLC_MODEL_DEFINITIONS.AGILE_DEVSECOPS_HYBRID,
-        rawScore: Math.round(hybridScore),
+        id: 'spiral',
+        name: SDLC_MODEL_DEFINITIONS.SPIRAL,
+        rawScore: Math.round(spiralScore),
         pros: [
-          'Unites sprint delivery velocity with rigorous compliance and security gates',
-          'Continuous audit readiness with immutable traceability artifacts',
-          'Balances stakeholder responsiveness with statutory adherence'
+          'Explicit clinical & technical risk analysis in every iterative spiral loop',
+          'De-risks novel medical AI algorithms and unfamiliar hardware via prototypes',
+          'Supports structured Go/No-Go clinical safety reviews per cycle'
         ],
         cons: [
-          'Requires sophisticated orchestration between regulatory compliance officers and sprint teams',
-          'Higher initial pipeline automation complexity'
+          'High project-management overhead for routine hospital IT modules',
+          'Requires experienced clinical risk assessors'
         ],
-        rationaleGenerator: (score) => {
-          if (isHybridRule) {
-            return `Deterministic Rule Triggered: High regulation + evolving requirements identified. The Agile–DevSecOps Hybrid model blends fast iterative sprint velocity with continuous automated security scanning and regulatory compliance-as-code gates, satisfying statutory standards without slowing delivery.`;
-          }
-          if (score >= 80) {
-            return `Agile-DevSecOps Hybrid scored ${score}% because the scenario combines regulatory oversight (${reg}%) and security risks (${sec}%) with changing user requirements (${chg}%).`;
-          }
-          return `Agile-DevSecOps Hybrid scored ${score}%. While highly capable, simpler models suffice when regulatory criticality is low.`;
-        }
+        rationale: isSpiralRule
+          ? `Elevated technical uncertainty (${unc}%) and clinical risk (${fail}%) warrant iterative prototyping and risk-mitigation cycles before full hospital rollout.`
+          : `Scored ${Math.round(spiralScore)}% given technical uncertainty (${unc}%) and risk profile (${fail}%).`
+      },
+      {
+        id: 'waterfall',
+        name: SDLC_MODEL_DEFINITIONS.WATERFALL,
+        rawScore: Math.round(waterfallScore),
+        pros: [
+          'Clear stage-gate sign-offs for hospital directors and statutory boards',
+          'Predictable fixed-scope budgeting and exhaustive upfront documentation',
+          'Simple governance when clinical rules are completely frozen'
+        ],
+        cons: [
+          'Very costly to revise once development starts',
+          'Late clinician feedback increases usability mismatch risk'
+        ],
+        rationale: isWaterfallRule
+          ? `Stable clinical requirements (${stab}%) and extensive upfront approval gates make linear sequential Waterfall delivery predictable and auditable.`
+          : `Scored ${Math.round(waterfallScore)}% due to requirement stability (${stab}%) vs. change frequency (${chg}%).`
+      },
+      {
+        id: 'agile',
+        name: SDLC_MODEL_DEFINITIONS.AGILE,
+        rawScore: Math.round(agileScore),
+        pros: [
+          'Rapid 2-week increments for patient-facing OPD portals and feedback apps',
+          'Continuous involvement of doctors, nurses, and patients in sprint demos',
+          'High adaptability to shifting hospital usability priorities'
+        ],
+        cons: [
+          'Lacks built-in statutory compliance gates unless paired with DevSecOps',
+          'Risk of incomplete audit documentation in high-regulation clinical cores'
+        ],
+        rationale: isAgileRule
+          ? `High requirement volatility (${chg}%) with lower formal verification overhead (${verif}%) fits fast Scrum iterations and direct patient/staff feedback.`
+          : `Scored ${Math.round(agileScore)}%; standalone Agile is penalized when hospital regulatory criticality (${reg}%) demands formal compliance gates.`
       }
     ];
 
-    // Normalize and sort descending
     const sorted = models
-      .map(m => {
-        const clampedScore = Math.min(Math.max(m.rawScore, 30), 98);
+      .map((m) => {
+        const clamped = Math.min(Math.max(m.rawScore, 30), 98);
         return {
-          id: m.id,
-          name: m.name,
-          score: clampedScore,
-          suitabilityScore: `${clampedScore}%`,
-          rationale: m.rationaleGenerator(clampedScore),
-          pros: m.pros,
-          cons: m.cons,
-          matchLevel: clampedScore >= 90 ? 'Primary Recommendation' : clampedScore >= 75 ? 'Viable Alternative' : clampedScore >= 55 ? 'Conditional Fit' : 'Low Suitability'
+          ...m,
+          score: clamped,
+          suitabilityScore: `${clamped}%`,
+          matchLevel: clamped >= 90 ? 'Primary Recommendation' : clamped >= 75 ? 'Viable Alternative' : clamped >= 55 ? 'Conditional Fit' : 'Low Suitability'
         };
       })
       .sort((a, b) => b.score - a.score);
 
-    // Assign rank
-    sorted.forEach((item, index) => {
-      item.rank = index + 1;
+    sorted.forEach((item, idx) => {
+      item.rank = idx + 1;
     });
 
     if (triggeredRule) {
@@ -484,456 +333,363 @@ export class SdlcAgent {
     return sorted;
   }
 
-  /**
-   * Generates IEEE 830 compliant workflow phases for the chosen model
-   */
-  _generateWorkflowPhases(modelName, _factors) {
-    const isDevSecOps = modelName.includes('DevSecOps');
-    const isVModel = modelName.includes('V-Model');
-    const isSpiral = modelName.includes('Spiral');
-    const isWaterfall = modelName.includes('Waterfall');
-
-    if (isDevSecOps) {
+  _generateHospitalWorkflow(modelName) {
+    if (modelName.includes('V-Model')) {
       return [
         {
           phaseNumber: 1,
-          phaseName: 'Inception, Threat Modeling & Secure Architecture',
-          durationEstimate: '2 Weeks',
-          objective: 'Define user stories, compliance gates, and conduct STRIDE threat modeling.',
-          responsibleRoles: ['Lead Architect', 'Security Engineer', 'Product Owner'],
+          phaseName: 'Clinical Safety Requirements & Acceptance Test Baseline',
+          durationEstimate: '3 Weeks',
+          objective: 'Freeze clinical safety requirements and draft 1-to-1 User Acceptance Tests (UAT) and RTM.',
+          responsibleRoles: ['Chief Medical Officer', 'Clinical Safety Officer', 'Systems Analyst'],
           activities: [
-            'Decompose system into user stories with security acceptance criteria',
-            'Conduct architectural threat modeling and attack surface mapping',
-            'Establish automated CI/CD pipeline with baseline linting and policy-as-code'
+            'Specify deterministic clinical safety, alarm, and fail-safe behaviors',
+            'Draft clinical UAT protocols mapped directly to each requirement ID',
+            'Baseline IEEE 830 SRS and IEC 62304 hazard traceability matrix'
           ],
-          deliverables: ['Product Backlog', 'Threat Model Dossier', 'Security Governance Baseline'],
-          securityControls: ['STRIDE Threat Modeling', 'Architecture Risk Assessment'],
-          complianceCheckpoints: 'CISO architectural review and statutory regulatory baseline sign-off.',
-          entryCriteria: 'Approved business scenario and initial compliance mandate.',
-          exitCriteria: 'Signed threat model and initialized secure repository templates.'
+          deliverables: ['Signed Clinical SRS', 'Hazard Analysis Dossier', 'UAT Protocol & RTM'],
+          securityControls: ['ePHI Threat Assessment', 'Role & Break-Glass Policy Baseline'],
+          complianceCheckpoints: 'Formal sign-off by CMO, Clinical Safety Board, and Compliance Officer.',
+          entryCriteria: 'Approved hospital clinical project charter.',
+          exitCriteria: 'Frozen clinical SRS and 100% mapped UAT plan.'
         },
         {
           phaseNumber: 2,
-          phaseName: 'Iterative Secure Sprint Development',
-          durationEstimate: '4-8 Weeks (2-Week Sprints)',
-          objective: 'Develop functional modules with pre-commit linters, SAST, and automated unit testing.',
-          responsibleRoles: ['Full-Stack Engineers', 'QA Automation Engineer', 'Scrum Master'],
+          phaseName: 'Medical System Architecture & Integration Test Design',
+          durationEstimate: '3 Weeks',
+          objective: 'Design fault-tolerant clinical architecture, HL7/device interfaces, and integration test specs.',
+          responsibleRoles: ['Hospital IT Architect', 'Biomedical Engineer', 'QA Lead'],
           activities: [
-            'Implement functional stories in 2-week sprint cadences',
-            'Run pre-commit secret scanning and static code analysis (SAST)',
-            'Develop automated test suites targeting >85% code coverage'
+            'Design active-active failover topology and medical device interface contracts',
+            'Author HL7 FHIR / bedside telemetry integration test suites',
+            'Verify cryptographic key management and network VLAN isolation'
           ],
-          deliverables: ['Sprint Increments', 'Unit/Integration Test Suites', 'Automated SAST Reports'],
-          securityControls: ['Pre-commit git hooks', 'SAST (SonarQube/Semgrep)', 'Secret scanning'],
-          complianceCheckpoints: 'Zero critical SAST findings required to merge pull requests.',
-          entryCriteria: 'Groomed sprint backlog with security test criteria.',
-          exitCriteria: 'Passing automated test suite and clean security scans.'
+          deliverables: ['Clinical Architecture Spec', 'Integration Test Matrix', 'Network Isolation Blueprint'],
+          securityControls: ['Medical VLAN Segmentation', 'TLS 1.3 & AES-256 Design Verification'],
+          complianceCheckpoints: 'Architecture & Biomedical Safety Review Gate.',
+          entryCriteria: 'Approved clinical SRS baseline.',
+          exitCriteria: 'Signed architecture spec and integration test matrix.'
         },
         {
           phaseNumber: 3,
-          phaseName: 'Automated CI/CD & Dynamic Security Scanning (DAST)',
-          durationEstimate: 'Continuous / 1 Week Final Stage',
-          objective: 'Execute automated build pipelines, container scanning, and dynamic penetration scans.',
-          responsibleRoles: ['DevSecOps Engineer', 'Security Analyst'],
-          activities: [
-            'Container image vulnerability scanning in ephemeral build environments',
-            'Dynamic Application Security Testing (DAST) against staging APIs',
-            'Automated software composition analysis (SCA) for third-party vulnerabilities'
-          ],
-          deliverables: ['Container Vulnerability Report', 'DAST Assessment Report', 'SCA Dependency Bill of Materials (SBOM)'],
-          securityControls: ['DAST (OWASP ZAP)', 'Container scanning (Trivy)', 'SBOM generation'],
-          complianceCheckpoints: 'Automated pipeline block on CVEs with CVSS >= 7.0.',
-          entryCriteria: 'Merged pull requests into release candidate branch.',
-          exitCriteria: 'Zero high/critical unpatched vulnerabilities in SBOM.'
-        },
-        {
-          phaseNumber: 4,
-          phaseName: 'Verification, Penetration Testing & Compliance Gate',
-          durationEstimate: '2 Weeks',
-          objective: 'Conduct independent third-party penetration testing and formal regulatory audit.',
-          responsibleRoles: ['Independent Pen-Tester', 'Compliance Officer', 'QA Lead'],
-          activities: [
-            'Execute manual and automated red-team penetration testing',
-            'Audit immutable transaction logging and encryption key management',
-            'Validate Disaster Recovery (DR) warm-failover and RTO/RPO targets'
-          ],
-          deliverables: ['Third-Party Penetration Test Report', 'Compliance Audit Certification', 'RTM Verification Sign-Off'],
-          securityControls: ['Independent Pen-Testing', 'Cryptographic Key Rotation Audit', 'Failover Drill'],
-          complianceCheckpoints: 'Regulatory officer and Chief Security Officer release authorization.',
-          entryCriteria: 'Staging environment passing automated CI/CD security scans.',
-          exitCriteria: 'All penetration test findings remediated; formal audit sign-off.'
-        },
-        {
-          phaseNumber: 5,
-          phaseName: 'Canary Deployment & Continuous Runtime Telemetry',
-          durationEstimate: 'Ongoing Post-Release',
-          objective: 'Execute zero-downtime canary deployment, runtime intrusion monitoring, and audit trails.',
-          responsibleRoles: ['Site Reliability Engineer (SRE)', 'SOC Analyst', 'Product Manager'],
-          activities: [
-            'Gradual canary traffic roll-out (5% -> 25% -> 100%) with automated rollbacks',
-            'Real-time telemetry monitoring via Web Application Firewall (WAF) and SIEM',
-            'Automated statutory compliance telemetry generation and monthly audit logs'
-          ],
-          deliverables: ['Production Release Dossier', 'Runtime WAF Telemetry Logs', 'Post-Deployment SLA Metrics'],
-          securityControls: ['Runtime Application Self-Protection (RASP)', 'Automated WAF / DDoS shield', 'Immutable audit logs'],
-          complianceCheckpoints: 'Continuous runtime compliance monitoring and automated anomaly alerts.',
-          entryCriteria: 'Production deployment approval from compliance board.',
-          exitCriteria: 'System stable under 100% live traffic meeting all latency SLAs.'
-        }
-      ];
-    } else if (isVModel) {
-      return [
-        {
-          phaseNumber: 1,
-          phaseName: 'Requirements Engineering & Acceptance Test Specification',
-          durationEstimate: '3 Weeks',
-          objective: 'Define detailed user and system requirements while simultaneously drafting acceptance test plans.',
-          responsibleRoles: ['Lead Systems Analyst', 'Lead Test Architect', 'Stakeholders'],
-          activities: [
-            'Document complete functional and safety requirements',
-            'Design user acceptance test (UAT) criteria mapped 1-to-1 with requirements',
-            'Establish formal Requirements Traceability Matrix (RTM)'
-          ],
-          deliverables: ['System Requirements Document', 'Acceptance Test Suite Specification', 'Traceability Baseline'],
-          securityControls: ['Requirements Security Inspection', 'Regulatory Traceability Mapping'],
-          complianceCheckpoints: 'Formal baseline sign-off by regulatory and business authorities.',
-          entryCriteria: 'Project charter approval.',
-          exitCriteria: 'Approved requirements and corresponding acceptance test suite.'
-        },
-        {
-          phaseNumber: 2,
-          phaseName: 'System Architecture & System Integration Test Design',
-          durationEstimate: '3 Weeks',
-          objective: 'Architect component subsystems while developing system-level integration test cases.',
-          responsibleRoles: ['Enterprise Architect', 'Integration QA Specialist'],
-          activities: [
-            'Design subsystem components, interfaces, and database models',
-            'Formulate system integration testing protocols',
-            'Verify interface contracts and protocol specifications'
-          ],
-          deliverables: ['System Architecture Specification', 'System Integration Test Plan'],
-          securityControls: ['Interface Threat Modeling', 'Network Isolation Controls'],
-          complianceCheckpoints: 'Architectural safety and reliability verification gate.',
-          entryCriteria: 'Frozen requirements baseline.',
-          exitCriteria: 'Approved architecture specification and integration test matrix.'
-        },
-        {
-          phaseNumber: 3,
-          phaseName: 'Detailed Module Design & Unit Test Formulation',
-          durationEstimate: '4 Weeks',
-          objective: 'Specify internal module algorithms and formulate corresponding unit tests.',
-          responsibleRoles: ['Senior Software Engineers', 'QA Engineers'],
-          activities: [
-            'Specify detailed module data structures and procedural algorithms',
-            'Author automated unit tests and test fixtures prior to coding (TDD)',
-            'Conduct peer design inspections'
-          ],
-          deliverables: ['Detailed Module Design Documents', 'Comprehensive Unit Test Harnesses'],
-          securityControls: ['Static Code Rule Definition', 'Cryptographic Algorithm Verification'],
-          complianceCheckpoints: 'Peer design review approval.',
-          entryCriteria: 'Approved system architecture specification.',
-          exitCriteria: 'Ready-to-code module specs with matching unit test suites.'
-        },
-        {
-          phaseNumber: 4,
-          phaseName: 'Implementation & Bilateral Verification Execution',
+          phaseName: 'Module Design, Implementation & Unit Verification',
           durationEstimate: '6 Weeks',
-          objective: 'Implement code and ascend the right-hand verification side of the V-Model.',
-          responsibleRoles: ['Development Team', 'Verification & Validation Engineers'],
+          objective: 'Implement clinical modules with strict static analysis and automated unit verification.',
+          responsibleRoles: ['Clinical Software Engineers', 'Verification Engineers'],
           activities: [
-            'Write production source code to module specifications',
-            'Execute unit tests, code coverage analysis, and static analysis',
-            'Execute integration tests validating interface communications'
+            'Implement alarm, telemetry, and record modules to frozen design specs',
+            'Achieve >= 90% branch test coverage on safety-critical logic',
+            'Execute peer clinical code reviews and SAST scans'
           ],
-          deliverables: ['Production Codebase', 'Unit and Integration Test Execution Results'],
-          securityControls: ['Static Analysis (SAST)', 'Strict Branch Protection Rules'],
-          complianceCheckpoints: '100% unit and integration test pass rate.',
-          entryCriteria: 'Module design and unit test specs approved.',
-          exitCriteria: 'Integrated software system passing all internal verification suites.'
-        },
-        {
-          phaseNumber: 5,
-          phaseName: 'System Validation & Final Formal Acceptance Sign-Off',
-          durationEstimate: '3 Weeks',
-          objective: 'Execute full system validation against original user requirements for formal release.',
-          responsibleRoles: ['Validation Engineers', 'Independent Audit Team', 'Stakeholders'],
-          activities: [
-            'Execute system-level performance, security, and load tests',
-            'Conduct end-user acceptance testing (UAT) following Phase 1 specifications',
-            'Generate formal audit certification and traceability verification sign-off'
-          ],
-          deliverables: ['Validation Final Report', 'Audit Compliance Certificate', 'Commissioning Sign-Off'],
-          securityControls: ['Formal Penetration Testing', 'Regulatory Audit Inspection'],
-          complianceCheckpoints: 'Full Traceability Matrix sign-off by QA and Compliance.',
-          entryCriteria: 'Successful completion of integration testing.',
-          exitCriteria: 'Formal customer acceptance and deployment authorization.'
-        }
-      ];
-    } else if (isSpiral) {
-      return [
-        {
-          phaseNumber: 1,
-          phaseName: 'Spiral 1: Objective Determination & Architectural Feasibility',
-          durationEstimate: '3 Weeks',
-          objective: 'Identify project objectives, constraints, and alternative technical architectures.',
-          responsibleRoles: ['Lead Architect', 'Chief Scientist / Tech Lead', 'Product Manager'],
-          activities: [
-            'Define core functional objectives and architectural constraints',
-            'Evaluate alternative technology stacks and algorithm designs',
-            'Establish initial risk register with probabilistic impact scores'
-          ],
-          deliverables: ['System Objectives Document', 'Initial Risk Matrix', 'Alternative Architecture Tradeoff Report'],
-          securityControls: ['Initial Threat Assessment', 'High-Risk Component Isolation'],
-          complianceCheckpoints: 'Stakeholder alignment on technical risks and objectives.',
-          entryCriteria: 'Project kickoff charter.',
-          exitCriteria: 'Ranked risk matrix and selected architecture candidates.'
-        },
-        {
-          phaseNumber: 2,
-          phaseName: 'Spiral 2: Risk Analysis & Algorithmic Prototyping',
-          durationEstimate: '4 Weeks',
-          objective: 'Construct exploratory prototypes to resolve top technical uncertainties.',
-          responsibleRoles: ['R&D Engineers', 'Prototype QA', 'Risk Officer'],
-          activities: [
-            'Build proof-of-concept prototypes targeting highest uncertainty items',
-            'Benchmark prototype latency, throughput, and algorithmic accuracy',
-            'Analyze prototype failure modes and eliminate non-viable alternatives'
-          ],
-          deliverables: ['Working Technical Prototype', 'Risk Resolution Report', 'Performance Benchmark Dossier'],
-          securityControls: ['Prototype Vulnerability Testing', 'Security Feasibility Review'],
-          complianceCheckpoints: 'Go/No-Go decision gate based on prototype risk resolution.',
-          entryCriteria: 'Approved Phase 1 risk matrix.',
-          exitCriteria: 'Technical uncertainties verified; fatal blockers eliminated.'
-        },
-        {
-          phaseNumber: 3,
-          phaseName: 'Spiral 3: Core Engineering & Incremental Build',
-          durationEstimate: '6 Weeks',
-          objective: 'Develop production-grade architecture incorporating prototype findings.',
-          responsibleRoles: ['Senior Developers', 'QA Automation Leads'],
-          activities: [
-            'Refactor validated prototype code into production-grade modular components',
-            'Implement core business logic and database persistence layers',
-            'Execute continuous regression testing on incremental builds'
-          ],
-          deliverables: ['Core Production Build', 'Regression Test Suite', 'Updated Risk Register'],
-          securityControls: ['SAST Automated Scanning', 'Defensive Error Handling'],
-          complianceCheckpoints: 'Intermediate milestone review with technical steering committee.',
-          entryCriteria: 'Validated architectural prototype.',
-          exitCriteria: 'Core system build passing 100% regression tests.'
+          deliverables: ['Verified Codebase', 'Unit Test & Coverage Report', 'SAST Clean Certificate'],
+          securityControls: ['Static Analysis (SAST)', 'Zero Hardcoded Credentials Audit'],
+          complianceCheckpoints: '100% unit test pass rate and zero critical SAST findings.',
+          entryCriteria: 'Approved architecture and detailed module design.',
+          exitCriteria: 'Verified modules ready for hospital staging integration.'
         },
         {
           phaseNumber: 4,
-          phaseName: 'Spiral 4: Operational Hardening & Security Testing',
+          phaseName: 'Bilateral System Integration & Clinical Simulation Testing',
           durationEstimate: '3 Weeks',
-          objective: 'Stress test the integrated system and mitigate residual operational risks.',
-          responsibleRoles: ['Performance Engineers', 'Security Auditors'],
+          objective: 'Validate end-to-end device/HMS integration, load resilience, and emergency failover.',
+          responsibleRoles: ['Biomedical QA', 'ICU Nursing Leads', 'Security Auditor'],
           activities: [
-            'Conduct high-volume load, stress, and failover drills',
-            'Perform security vulnerability assessments and penetration testing',
-            'Evaluate final compliance with regulatory and performance mandates'
+            'Simulate peak ICU/ER vitals load and sensor-disconnect fail-safe alarms',
+            'Validate emergency break-glass access and audit log immutability',
+            'Execute independent penetration test on hospital APIs'
           ],
-          deliverables: ['Stress Test Assessment', 'Vulnerability Remediation Report', 'Operational Readiness Dossier'],
-          securityControls: ['Penetration Testing', 'Disaster Recovery Simulation'],
-          complianceCheckpoints: 'Risk officer sign-off that residual risk is below acceptable threshold.',
-          entryCriteria: 'Complete integrated core build.',
-          exitCriteria: 'Zero critical security or performance risks remaining.'
+          deliverables: ['Clinical Simulation Report', 'Penetration Test Report', 'Failover Drill Log'],
+          securityControls: ['Third-Party Penetration Test', 'Break-Glass Audit Verification'],
+          complianceCheckpoints: 'Zero open safety or critical security defects.',
+          entryCriteria: 'Integrated build deployed to isolated clinical staging.',
+          exitCriteria: 'Passed clinical simulation and security audit.'
         },
         {
           phaseNumber: 5,
-          phaseName: 'Release Evaluation & Next Evolution Planning',
+          phaseName: 'Clinical UAT, Regulatory Certification & Controlled Cutover',
           durationEstimate: '2 Weeks',
-          objective: 'Deploy production release and plan subsequent evolutionary spiral loops.',
-          responsibleRoles: ['Product Steering Committee', 'SRE Lead'],
+          objective: 'Complete formal clinician UAT, archive traceability evidence, and execute phased ward rollout.',
+          responsibleRoles: ['Hospital Director', 'Compliance Officer', 'SRE & Nursing Supervisors'],
           activities: [
-            'Execute production deployment with telemetry monitoring',
-            'Gather operational user telemetry and feedback',
-            'Plan objectives and risk dimensions for the subsequent evolutionary spiral'
+            'Execute Phase 1 UAT scripts with ICU/ER clinicians',
+            'Compile final IEC 62304 / NABH / HIPAA compliance dossier',
+            'Run parallel shadow mode in one ward before hospital-wide go-live'
           ],
-          deliverables: ['Production Release Dossier', 'User Feedback Telemetry', 'Evolutionary Spiral Roadmap'],
-          securityControls: ['Production Telemetry Monitoring', 'Incident Response Playbook'],
-          complianceCheckpoints: 'Customer acceptance and roadmap approval.',
-          entryCriteria: 'Operational hardening sign-off.',
-          exitCriteria: 'Successful deployment and roadmap established for Next Spiral.'
-        }
-      ];
-    } else if (isWaterfall) {
-      return [
-        {
-          phaseNumber: 1,
-          phaseName: 'Exhaustive Requirements Specification & Sign-Off',
-          durationEstimate: '4 Weeks',
-          objective: 'Define all functional, non-functional, and interface requirements with formal stakeholder sign-off.',
-          responsibleRoles: ['Business Analyst', 'Enterprise Architect', 'Executive Stakeholders'],
-          activities: [
-            'Conduct structured stakeholder elicitation workshops',
-            'Draft comprehensive Software Requirements Specification (IEEE 830)',
-            'Conduct formal stage-gate approval reviews'
-          ],
-          deliverables: ['Formal SRS Document', 'Requirements Traceability Matrix', 'Approved Project Charter'],
-          securityControls: ['Security Requirements Baseline', 'Compliance Governance Mapping'],
-          complianceCheckpoints: 'Executive sign-off; scope is frozen.',
-          entryCriteria: 'Project authorization.',
-          exitCriteria: 'Signed and frozen SRS document.'
-        },
-        {
-          phaseNumber: 2,
-          phaseName: 'System & Architectural Design Specification',
-          durationEstimate: '4 Weeks',
-          objective: 'Produce comprehensive architectural, database, and interface designs.',
-          responsibleRoles: ['Lead Systems Architect', 'Database Architect'],
-          activities: [
-            'Create High-Level Design (HLD) and Low-Level Design (LLD) documents',
-            'Specify relational database schemas, indexes, and ER diagrams',
-            'Document all internal and external API interface contracts'
-          ],
-          deliverables: ['High-Level Architecture Document', 'Low-Level Design Specification', 'Database Schema DDL'],
-          securityControls: ['Architectural Security Review', 'Cryptographic Model Approval'],
-          complianceCheckpoints: 'Architecture Review Board (ARB) formal approval.',
-          entryCriteria: 'Signed SRS document.',
-          exitCriteria: 'Approved and baselined design specifications.'
-        },
-        {
-          phaseNumber: 3,
-          phaseName: 'Implementation & Module Construction',
-          durationEstimate: '8-12 Weeks',
-          objective: 'Implement all software modules according to frozen design specifications.',
-          responsibleRoles: ['Software Engineering Team', 'Technical Leads'],
-          activities: [
-            'Develop all software units according to strict coding standards',
-            'Execute unit tests and peer code reviews',
-            'Integrate software modules into centralized build repository'
-          ],
-          deliverables: ['Fully Implemented Codebase', 'Unit Test Results Report', 'Build Artifacts'],
-          securityControls: ['Automated Code Quality Linters', 'Peer Security Review'],
-          complianceCheckpoints: 'Code freeze verification; 100% unit tests passed.',
-          entryCriteria: 'Frozen architecture and design documents.',
-          exitCriteria: 'All features implemented; code freeze declared.'
-        },
-        {
-          phaseNumber: 4,
-          phaseName: 'System Integration & Formal Verification Testing',
-          durationEstimate: '4 Weeks',
-          objective: 'Execute end-to-end integration, performance, and user acceptance testing.',
-          responsibleRoles: ['Independent QA Team', 'User Acceptance Representatives'],
-          activities: [
-            'Execute full test suite against frozen code baseline',
-            'Perform performance, load, and security vulnerability testing',
-            'Coordinate User Acceptance Testing (UAT) with formal sign-off sheets'
-          ],
-          deliverables: ['Formal QA Test Execution Log', 'Defect Remediation Report', 'Signed UAT Approval'],
-          securityControls: ['Formal Penetration Testing', 'Security Audit Inspection'],
-          complianceCheckpoints: 'Zero open blocker or critical defects.',
-          entryCriteria: 'Code freeze and deployment to dedicated QA staging.',
-          exitCriteria: 'Formal stakeholder UAT sign-off.'
-        },
-        {
-          phaseNumber: 5,
-          phaseName: 'Deployment, Handover & Maintenance Transition',
-          durationEstimate: '2 Weeks',
-          objective: 'Deploy release into production environment and transition to operations.',
-          responsibleRoles: ['Deployment Engineer', 'Operations Support', 'Project Manager'],
-          activities: [
-            'Execute production cutover script according to runbook',
-            'Conduct post-deployment smoke verification testing',
-            'Hand over documentation and operations manual to support team'
-          ],
-          deliverables: ['Production Release Dossier', 'Operations & Maintenance Manual', 'Project Closure Report'],
-          securityControls: ['Production Access Audit', 'Final Configuration Verification'],
-          complianceCheckpoints: 'Production acceptance sign-off by operations leadership.',
-          entryCriteria: 'Signed UAT approval and deployment readiness sign-off.',
-          exitCriteria: 'System operational in production; project transitioned to maintenance.'
-        }
-      ];
-    } else {
-      // Agile (Scrum)
-      return [
-        {
-          phaseNumber: 1,
-          phaseName: 'Product Backlog Elicitation & Sprint 0 Inception',
-          durationEstimate: '1-2 Weeks',
-          objective: 'Define vision, user stories, acceptance criteria, and initial sprint goals.',
-          responsibleRoles: ['Product Owner', 'Scrum Master', 'Development Team'],
-          activities: [
-            'Break down requirements into prioritized user stories with story points',
-            'Establish Definition of Ready (DoR) and Definition of Done (DoD)',
-            'Set up development environments, linting, and automated CI pipelines'
-          ],
-          deliverables: ['Prioritized Product Backlog', 'Sprint 0 Infrastructure', 'Agile Team Charter'],
-          securityControls: ['Security User Story Tagging', 'Automated Pre-Commit Checks'],
-          complianceCheckpoints: 'Product Owner approval of prioritized backlog.',
-          entryCriteria: 'Product vision agreed with stakeholders.',
-          exitCriteria: 'Groomed backlog ready for Sprint 1 execution.'
-        },
-        {
-          phaseNumber: 2,
-          phaseName: 'Sprint Execution & Iterative Development Cadence',
-          durationEstimate: '4-8 Weeks (2-Week Iterations)',
-          objective: 'Deliver potentially releasable working software increments every sprint.',
-          responsibleRoles: ['Scrum Team', 'Product Owner'],
-          activities: [
-            'Conduct Sprint Planning, Daily Standups, and Backlog Refinement',
-            'Develop, test, and integrate user stories within 2-week iterations',
-            'Conduct sprint reviews with live software demonstrations'
-          ],
-          deliverables: ['Working Software Increments', 'Sprint Burndown Charts', 'Automated Unit/Integration Tests'],
-          securityControls: ['Automated PR Security Scans', 'Sprint DoD Security Criteria'],
-          complianceCheckpoints: 'Sprint Demo stakeholder acceptance.',
-          entryCriteria: 'Sprint backlog approved during Sprint Planning.',
-          exitCriteria: 'User stories meet Definition of Done.'
-        },
-        {
-          phaseNumber: 3,
-          phaseName: 'Continuous Integration & Automated Testing Pipeline',
-          durationEstimate: 'Integrated Continuous Flow',
-          objective: 'Maintain unbroken build and test automation on every code push.',
-          responsibleRoles: ['Developers', 'QA Automation Engineer'],
-          activities: [
-            'Automated execution of unit, integration, and UI tests on pull requests',
-            'Maintain continuous build health and immediate failure notifications',
-            'Automated regression testing before deployment candidate branching'
-          ],
-          deliverables: ['CI Test Automation Suite', 'Build Artifacts Repository', 'Test Coverage Reports'],
-          securityControls: ['Automated Dependency Auditing', 'Container Scanning'],
-          complianceCheckpoints: 'All CI checks green before branch merges.',
-          entryCriteria: 'Pull request submission.',
-          exitCriteria: 'Clean test run and branch merge.'
-        },
-        {
-          phaseNumber: 4,
-          phaseName: 'Release Increment Review & Stakeholder Feedback',
-          durationEstimate: '1 Week per Major Release',
-          objective: 'Review release candidate with key stakeholders and adapt backlog accordingly.',
-          responsibleRoles: ['Product Owner', 'Stakeholders', 'Development Team'],
-          activities: [
-            'Demonstrate consolidated release increment to enterprise stakeholders',
-            'Gather user telemetry, feedback, and emerging requirements',
-            'Re-prioritize product backlog based on market validation'
-          ],
-          deliverables: ['Release Candidate Demo', 'Stakeholder Feedback Matrix', 'Updated Product Backlog'],
-          securityControls: ['Pre-Release Vulnerability Scan', 'Sanity Test Suite'],
-          complianceCheckpoints: 'Product Owner release approval.',
-          entryCriteria: 'Satisfied sprint goals across release milestone.',
-          exitCriteria: 'Formal authorization to deploy release candidate.'
-        },
-        {
-          phaseNumber: 5,
-          phaseName: 'Production Release & Iterative Retrospective',
-          durationEstimate: 'Continuous / 2-Week Cadence',
-          objective: 'Deploy release increment to production and conduct sprint retrospective.',
-          responsibleRoles: ['Scrum Team', 'DevOps Specialist'],
-          activities: [
-            'Execute automated production deployment with zero downtime',
-            'Conduct Sprint Retrospective to continuously improve team efficiency',
-            'Monitor production usage metrics to inform subsequent sprint priorities'
-          ],
-          deliverables: ['Live Production Deployment', 'Sprint Retrospective Action Items', 'Usage Telemetry Dashboard'],
-          securityControls: ['Automated Health Check Probes', 'Production Log Monitoring'],
-          complianceCheckpoints: 'Post-deployment verification check.',
-          entryCriteria: 'Approved release candidate.',
-          exitCriteria: 'Release active in production with team improvements logged.'
+          deliverables: ['Signed UAT Certificate', 'Regulatory Audit Package', 'Ward Cutover Runbook'],
+          securityControls: ['Production Access Lockout Audit', '24/7 SIEM Clinical Monitoring'],
+          complianceCheckpoints: 'Final production sign-off by CMO, CISO, and Compliance Officer.',
+          entryCriteria: 'Completed integration & security remediation.',
+          exitCriteria: 'Certified clinical system running live with 99.99% SLA telemetry.'
         }
       ];
     }
+
+    if (modelName.includes('Spiral')) {
+      return [
+        {
+          phaseNumber: 1,
+          phaseName: 'Spiral 1: Clinical Hypothesis & Risk Matrix Definition',
+          durationEstimate: '2–3 Weeks',
+          objective: 'Define clinical research objectives, data governance constraints, and top technical risks.',
+          responsibleRoles: ['Chief Medical Officer', 'Clinical AI Lead', 'Privacy Officer'],
+          activities: [
+            'Define clinical accuracy targets and acceptable false-alarm bounds',
+            'Establish de-identified training/validation datasets under ethics board approval',
+            'Build prioritized technical and clinical safety risk register'
+          ],
+          deliverables: ['Clinical Research Charter', 'Ethics & Privacy Approval', 'Initial Risk Register'],
+          securityControls: ['Dataset De-Identification Audit', 'HIPAA Safe Harbor Verification'],
+          complianceCheckpoints: 'Institutional Review Board (IRB) & Privacy Officer approval.',
+          entryCriteria: 'Hospital innovation charter.',
+          exitCriteria: 'Approved de-identified dataset and ranked risk matrix.'
+        },
+        {
+          phaseNumber: 2,
+          phaseName: 'Spiral 2: Exploratory Prototyping & Retrospective Validation',
+          durationEstimate: '4 Weeks',
+          objective: 'Build exploratory AI/hardware prototypes and test against historical hospital cohorts.',
+          responsibleRoles: ['ML/R&D Engineers', 'Clinical Advisors', 'Risk Officer'],
+          activities: [
+            'Prototype candidate algorithms and benchmark sensitivity/specificity',
+            'Test sensor interoperability across heterogeneous ICU/ward hardware',
+            'Eliminate high-risk or biased approaches early'
+          ],
+          deliverables: ['Working Prototype', 'Retrospective Clinical Benchmark', 'Bias & Risk Report'],
+          securityControls: ['Model Data Leakage Audit', 'Isolated Sandbox Execution'],
+          complianceCheckpoints: 'Go/No-Go clinical feasibility gate.',
+          entryCriteria: 'Approved Phase 1 risk matrix.',
+          exitCriteria: 'Validated prototype meeting clinical sensitivity thresholds.'
+        },
+        {
+          phaseNumber: 3,
+          phaseName: 'Spiral 3: Shadow-Mode Clinical Pilot & Explainability Hardening',
+          durationEstimate: '5 Weeks',
+          objective: 'Run the system in silent shadow mode alongside clinicians to verify real-world safety.',
+          responsibleRoles: ['Senior Engineers', 'Attending Physicians', 'QA Lead'],
+          activities: [
+            'Deploy in read-only shadow mode without altering live patient care',
+            'Validate clinician explainability cards and override workflows',
+            'Refine HL7 FHIR integration and latency bottlenecks'
+          ],
+          deliverables: ['Shadow-Mode Clinical Evaluation', 'Explainability Audit', 'Hardened Build'],
+          securityControls: ['PHI Masking Verification', 'SAST/DAST Automated Scans'],
+          complianceCheckpoints: 'Clinical Steering Committee shadow-pilot sign-off.',
+          entryCriteria: 'Successful retrospective prototype.',
+          exitCriteria: 'Confirmed real-world clinical accuracy and clinician trust.'
+        },
+        {
+          phaseNumber: 4,
+          phaseName: 'Spiral 4: Production Engineering, Security & Fail-Safe Testing',
+          durationEstimate: '3 Weeks',
+          objective: 'Harden system for hospital production with penetration testing and disaster recovery drills.',
+          responsibleRoles: ['DevSecOps Engineer', 'Compliance Officer', 'SRE'],
+          activities: [
+            'Execute penetration testing, load stress tests, and failover drills',
+            'Verify immutable audit logging of all AI recommendations and clinician overrides',
+            'Complete NABH/HIPAA compliance checklist'
+          ],
+          deliverables: ['Security & Pen-Test Report', 'Compliance Audit Package', 'DR Drill Report'],
+          securityControls: ['Penetration Testing', 'Immutable Audit Trail Verification'],
+          complianceCheckpoints: 'Residual clinical & cyber risk sign-off by CISO & CMO.',
+          entryCriteria: 'Approved shadow-pilot findings.',
+          exitCriteria: 'Zero critical security or safety blockers.'
+        },
+        {
+          phaseNumber: 5,
+          phaseName: 'Controlled Clinical Rollout & Continuous Drift Monitoring',
+          durationEstimate: 'Ongoing',
+          objective: 'Roll out to target hospital wards and monitor model drift and clinical outcomes.',
+          responsibleRoles: ['Clinical Safety Team', 'MLOps/SRE', 'Product Manager'],
+          activities: [
+            'Phased ward rollout with mandatory human-in-the-loop clinician confirmation',
+            'Continuous monitoring for data drift, alert fatigue, and false positives',
+            'Plan next spiral iteration from live clinical feedback'
+          ],
+          deliverables: ['Production Rollout Dossier', 'Clinical Drift Dashboard', 'Next-Spiral Roadmap'],
+          securityControls: ['Runtime Telemetry & SIEM Alerts', 'Periodic Bias Re-Audits'],
+          complianceCheckpoints: 'Quarterly clinical governance and safety review.',
+          entryCriteria: 'Final production sign-off.',
+          exitCriteria: 'Stable live clinical operation with active drift monitoring.'
+        }
+      ];
+    }
+
+    if (modelName.includes('Waterfall')) {
+      return [
+        {
+          phaseNumber: 1,
+          phaseName: 'Exhaustive Hospital Requirements & Board Sign-Off',
+          durationEstimate: '4 Weeks',
+          objective: 'Finalize all statutory, clinical, and reporting requirements with executive sign-off.',
+          responsibleRoles: ['Hospital Business Analyst', 'Compliance Officer', 'Medical Director'],
+          activities: [
+            'Gather complete statutory reporting formats and hospital policy rules',
+            'Publish formal IEEE 830 Hospital SRS and Requirements Traceability Matrix',
+            'Obtain frozen scope sign-off from hospital governance committee'
+          ],
+          deliverables: ['Frozen IEEE 830 SRS', 'Regulatory Mapping Matrix', 'Signed Project Charter'],
+          securityControls: ['ePHI Data Classification', 'Statutory Retention Policy Baseline'],
+          complianceCheckpoints: 'Executive & Legal Board scope freeze approval.',
+          entryCriteria: 'Hospital mandate and budget approval.',
+          exitCriteria: 'Signed, frozen SRS baseline.'
+        },
+        {
+          phaseNumber: 2,
+          phaseName: 'System Architecture, Schema & Interface Specification',
+          durationEstimate: '3 Weeks',
+          objective: 'Complete High-Level Design, database schemas, and legacy HMS export interfaces.',
+          responsibleRoles: ['Hospital IT Architect', 'Database Administrator'],
+          activities: [
+            'Design relational database schemas with AES-256 encryption controls',
+            'Specify HL7/CSV statutory export formats and error codes',
+            'Complete Architecture Review Board inspection'
+          ],
+          deliverables: ['HLD/LLD Specifications', 'Encrypted Database DDL', 'Interface Control Doc'],
+          securityControls: ['Architectural Threat Review', 'Access Control Matrix'],
+          complianceCheckpoints: 'Hospital IT & Security Architecture sign-off.',
+          entryCriteria: 'Frozen SRS.',
+          exitCriteria: 'Approved design specifications.'
+        },
+        {
+          phaseNumber: 3,
+          phaseName: 'Module Implementation & Internal Quality Verification',
+          durationEstimate: '6–8 Weeks',
+          objective: 'Build all hospital reporting and workflow modules strictly to design specs.',
+          responsibleRoles: ['Development Team', 'Tech Lead'],
+          activities: [
+            'Implement core modules and automated unit test suites',
+            'Run peer code reviews and static security analysis',
+            'Prepare staging deployment package and code freeze'
+          ],
+          deliverables: ['Completed Codebase', 'Unit Test Report', 'Build Artifacts'],
+          securityControls: ['SAST Code Scanning', 'Peer Security Review'],
+          complianceCheckpoints: 'Code freeze and 100% unit test pass.',
+          entryCriteria: 'Approved design baseline.',
+          exitCriteria: 'Code-frozen staging release.'
+        },
+        {
+          phaseNumber: 4,
+          phaseName: 'Formal QA, Compliance Audit & Hospital UAT',
+          durationEstimate: '3 Weeks',
+          objective: 'Verify statutory accuracy, ePHI security, and hospital user acceptance.',
+          responsibleRoles: ['QA Team', 'Compliance Officer', 'Hospital Staff'],
+          activities: [
+            'Validate 100% accuracy of statutory reports against sample hospital records',
+            'Conduct security vulnerability testing and audit log verification',
+            'Execute formal Hospital UAT with signed approval sheets'
+          ],
+          deliverables: ['QA Verification Log', 'Security Audit Report', 'Signed UAT Form'],
+          securityControls: ['Vulnerability Assessment', 'Audit Trail Completeness Test'],
+          complianceCheckpoints: 'Zero critical defects; Compliance Officer sign-off.',
+          entryCriteria: 'Staging deployment complete.',
+          exitCriteria: 'Formal UAT acceptance.'
+        },
+        {
+          phaseNumber: 5,
+          phaseName: 'Production Deployment & Hospital Operations Handover',
+          durationEstimate: '2 Weeks',
+          objective: 'Deploy to hospital production environment and train operations staff.',
+          responsibleRoles: ['Deployment Engineer', 'Hospital IT Support', 'Project Manager'],
+          activities: [
+            'Execute scheduled production cutover with rollback plan',
+            'Conduct staff training and handover operations runbooks',
+            'Verify post-go-live backups and audit log retention'
+          ],
+          deliverables: ['Production Cutover Report', 'Operations Manual', 'Closure Sign-Off'],
+          securityControls: ['Production Access Audit', 'Encrypted Backup Verification'],
+          complianceCheckpoints: 'Hospital Operations & CISO go-live sign-off.',
+          entryCriteria: 'Signed UAT and readiness checklist.',
+          exitCriteria: 'Live production operation transitioned to hospital IT.'
+        }
+      ];
+    }
+
+    return [
+      {
+        phaseNumber: 1,
+        phaseName: 'Clinical Inception, Threat Modeling & Compliance-as-Code',
+        durationEstimate: '2 Weeks',
+        objective: 'Define clinical user stories, HIPAA/NABH policy-as-code gates, and STRIDE threat model.',
+        responsibleRoles: ['Product Owner (CMO Rep)', 'Hospital IT Architect', 'Security Engineer'],
+        activities: [
+          'Decompose hospital modules into prioritized stories with clinical acceptance criteria',
+          'Run STRIDE threat modeling on ePHI flows, RBAC, and break-glass paths',
+          'Configure CI/CD pipeline with automated SAST, secret scanning, and FHIR schema checks'
+        ],
+        deliverables: ['Clinical Product Backlog', 'ePHI Threat Model', 'Automated CI/CD Baseline'],
+        securityControls: ['STRIDE Threat Modeling', 'Automated Pre-Commit Secret Scanning'],
+        complianceCheckpoints: 'HIPAA/NABH Compliance Officer baseline approval.',
+        entryCriteria: 'Approved hospital initiative and stakeholder roles.',
+        exitCriteria: 'Groomed Sprint 1 backlog and green security pipeline.'
+      },
+      {
+        phaseNumber: 2,
+        phaseName: 'Iterative Clinical Sprints & Shift-Left Security',
+        durationEstimate: '4–8 Weeks (2-Week Sprints)',
+        objective: 'Deliver working clinical increments every 2 weeks with automated testing and clinician demos.',
+        responsibleRoles: ['Full-Stack & FHIR Engineers', 'QA Automation', 'Nursing/Doctor Reps'],
+        activities: [
+          'Build EHR, e-Rx, lab, or telehealth stories in 2-week sprint cadences',
+          'Run automated SAST, dependency SCA, and unit tests (>85% coverage) on every PR',
+          'Conduct bi-weekly sprint demos with doctors and nurses for usability feedback'
+        ],
+        deliverables: ['Working Clinical Increments', 'Automated Test & SAST Reports', 'Sprint Demo Sign-Offs'],
+        securityControls: ['SAST (Semgrep/SonarQube)', 'Dependency Vulnerability Gate (SCA)'],
+        complianceCheckpoints: 'Zero high/critical security findings allowed to merge.',
+        entryCriteria: 'Sprint backlog meeting Definition of Ready.',
+        exitCriteria: 'Clinician-accepted sprint increment with clean security scans.'
+      },
+      {
+        phaseNumber: 3,
+        phaseName: 'HL7/FHIR Integration & Dynamic Security Scanning (DAST)',
+        durationEstimate: 'Continuous / 1 Week Hardening',
+        objective: 'Validate legacy HMS/lab interoperability and execute automated dynamic security scans.',
+        responsibleRoles: ['DevSecOps Engineer', 'FHIR Integration Lead', 'Security Analyst'],
+        activities: [
+          'Execute automated HL7 FHIR R4 / DICOM contract tests against staging HMS',
+          'Run OWASP ZAP DAST and container image scanning (Trivy)',
+          'Generate Software Bill of Materials (SBOM) and audit trail verification'
+        ],
+        deliverables: ['FHIR Integration Report', 'DAST & Container Scan Report', 'Signed SBOM'],
+        securityControls: ['DAST (OWASP ZAP)', 'Container Scanning', 'API Rate-Limiting & AuthZ Tests'],
+        complianceCheckpoints: 'Pipeline auto-blocks any unpatched CVE with CVSS >= 7.0.',
+        entryCriteria: 'Release candidate merged to staging.',
+        exitCriteria: 'Clean DAST/container scan and passing FHIR contract suite.'
+      },
+      {
+        phaseNumber: 4,
+        phaseName: 'Clinical Safety UAT, Pen-Testing & Compliance Gate',
+        durationEstimate: '1–2 Weeks',
+        objective: 'Perform independent penetration testing, disaster recovery failover, and clinical UAT.',
+        responsibleRoles: ['Independent Pen-Tester', 'Compliance Officer', 'Clinical Leads'],
+        activities: [
+          'Execute manual penetration test focusing on horizontal ePHI access & break-glass',
+          'Run live database failover drill verifying RTO/RPO clinical targets',
+          'Obtain formal Human-in-the-Loop approval on requirements & SDLC compliance'
+        ],
+        deliverables: ['Pen-Test Remediation Report', 'DR Failover Proof', 'Signed Compliance Gate'],
+        securityControls: ['Third-Party Penetration Test', 'Key Rotation & WORM Log Audit'],
+        complianceCheckpoints: 'Mandatory release sign-off by CMO, CISO, and Compliance Officer.',
+        entryCriteria: 'Staging candidate passing all automated CI/CD gates.',
+        exitCriteria: 'Signed clinical & regulatory release authorization.'
+      },
+      {
+        phaseNumber: 5,
+        phaseName: 'Zero-Downtime Canary Rollout & Continuous Clinical Telemetry',
+        durationEstimate: 'Ongoing Post-Release',
+        objective: 'Roll out incrementally across hospital departments with 24/7 security and SLA monitoring.',
+        responsibleRoles: ['Hospital SRE', 'SOC Analyst', 'Clinical Operations Lead'],
+        activities: [
+          'Pilot rollout to one department/ward (10% -> 50% -> 100%) with instant rollback',
+          'Monitor real-time API latency, WAF/SIEM intrusion alerts, and break-glass usage',
+          'Feed post-release clinical telemetry into the next sprint backlog'
+        ],
+        deliverables: ['Production Release Dossier', 'Live SLA & SIEM Dashboard', 'Retrospective Log'],
+        securityControls: ['WAF / Runtime Protection', '24/7 SIEM Audit Monitoring', 'Automated Backups'],
+        complianceCheckpoints: 'Continuous automated compliance evidence collection for NABH/HIPAA.',
+        entryCriteria: 'Approved production release gate.',
+        exitCriteria: 'Stable hospital-wide operation meeting all clinical SLAs.'
+      }
+    ];
   }
 }

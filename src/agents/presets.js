@@ -1,91 +1,129 @@
 /**
- * Predefined Scenarios & Modules across Financial and Mission-Critical Domains
+ * Hospital & Healthcare Case Studies + 6 SDLC Deterministic Rule Scenarios
  */
 
-export const PRESET_SCENARIOS = [
+export const HOSPITAL_PRESETS = [
   {
-    id: 'loan_origination',
-    title: 'Automated Loan Origination & Credit Assessment System',
-    category: 'Financial Services / Lending',
-    scenarioDescription: `Develop an intelligent Digital Loan Origination and Automated Credit Assessment module for a commercial bank. The system must allow retail and SME applicants to apply for personal and commercial loans online, automatically pull credit bureau reports (e.g. CIBIL/Experian), verify income using bank statement analyzers, and calculate automated creditworthiness scores using an ML underwriting model. High-risk or borderline credit applications must be routed to human credit risk officers with automated explainability dossiers. The platform must enforce strict regulatory compliance (RBI digital lending norms / Fair Lending Acts), encrypt all tax and identity documents, maintain tamper-evident audit trails of credit decisions, and support real-time digital loan sanction and disbursement within 15 minutes.`,
-    tags: ['FinTech', 'Credit Risk', 'RBI Regulations', 'High Security', 'ML Underwriting'],
+    id: 'hospital_ehr_cds',
+    title: 'Multi-Hospital EHR & Clinical Decision Support System',
+    category: 'Core Clinical / EHR',
+    defaultRole: 'cmo',
+    scenarioDescription: `Develop a unified Electronic Health Records (EHR) and Clinical Decision Support platform for a multi-specialty hospital network. Physicians and nurses must record patient histories, vitals, allergies, diagnoses, and orders in real time, with automated drug-to-drug interaction alerts and ABHA/HL7 FHIR R4 interoperability across departments. The system faces high regulation (HIPAA, NABH 5th Edition, DPDP Act) and evolving clinical requirements as new specialties and national health directives are added. All ePHI must be encrypted (AES-256 / TLS 1.3), enforce RBAC with emergency break-glass access, and maintain immutable audit logs.`,
+    tags: ['EHR', 'HIPAA & NABH', 'HL7 FHIR R4', 'Break-Glass RBAC'],
     defaultFactors: {
-      requirementStability: 75,
-      regulatoryCriticality: 92,
+      requirementStability: 55,
+      changeFrequency: 72,
+      regulatoryCriticality: 96,
       securityRisk: 95,
-      complexity: 82,
-      changeFrequency: 60,
-      continuousDeliveryNeed: 80,
-      formalVerificationNeed: 88,
-      failureConsequence: 90
+      technicalUncertainty: 48,
+      failureConsequence: 92,
+      continuousDeploymentNeed: 82,
+      formalVerificationNeed: 84
     }
   },
   {
-    id: 'fraud_detection',
-    title: 'Real-Time Payment Gateway & Anti-Fraud Processing Engine',
-    category: 'Payments / Security',
-    scenarioDescription: `Build a high-throughput, low-latency Payment Processing and Fraud Detection Engine capable of inspecting 10,000 transactions per second (TPS) with sub-50ms inference time. The engine must score incoming credit card, UPI, and wire transactions for fraud patterns (velocity checks, geolocation jumps, device fingerprinting, and blacklisted merchant accounts). Legitimate transactions are routed to payment networks, suspicious transactions trigger adaptive step-up multi-factor authentication (3D Secure 2.0 / OTP), and fraudulent transactions are immediately rejected with alert notifications to SOC teams. The system must be fully PCI-DSS v4.0 Level 1 certified, ensure zero plain-text card data storage, feature 99.999% high availability with active-active multi-region failover, and produce automated regulatory incident reports.`,
-    tags: ['PCI-DSS Level 1', 'Sub-50ms Latency', '10,000 TPS', 'Active-Active', 'Cybersecurity'],
+    id: 'icu_triage_monitoring',
+    title: 'Emergency Department (ED) Triage & ICU Vitals Monitoring',
+    category: 'Critical Care / Safety-Critical',
+    defaultRole: 'nursing',
+    scenarioDescription: `Build an Emergency Department (ED) triage and ICU bedside patient monitoring system integrating with hospital ventilators, infusion pumps, and telemetry monitors. The platform must stream real-time heart rate, SpO2, and blood pressure telemetry, trigger sub-second critical deterioration alerts to ICU nurses, and enforce strict verification/validation under IEC 62304 safety standards. Require 99.99% uptime with zero data loss failover, formal traceability from clinical safety requirements to verification tests, and mandatory clinician sign-off on automated early-warning scores.`,
+    tags: ['ICU Safety', 'IEC 62304', 'Strict V&V', '99.99% Uptime'],
     defaultFactors: {
-      requirementStability: 65,
+      requirementStability: 82,
+      changeFrequency: 28,
       regulatoryCriticality: 98,
-      securityRisk: 99,
-      complexity: 94,
-      changeFrequency: 75,
-      continuousDeliveryNeed: 95,
-      formalVerificationNeed: 92,
-      failureConsequence: 98
-    }
-  },
-  {
-    id: 'video_kyc',
-    title: 'Customer Onboarding & Automated Video KYC Platform',
-    category: 'Digital Banking / Identity',
-    scenarioDescription: `Implement an end-to-end digital customer onboarding system featuring AI-assisted Video Know-Your-Customer (V-KYC). Customers upload government ID proofs (Aadhaar, Passport, PAN), which undergo OCR data extraction and holographic tampering verification. An interactive live video session is conducted with geo-tagging, liveness detection (blink/head turn), and facial biometric matching against the government ID photo. The platform must connect to regulatory databases for instant AML/PEP (Anti-Money Laundering / Politically Exposed Persons) sanctions screening. The solution must comply with central bank digital identity regulations, mandate video recording storage for 10 years in encrypted WORM (Write Once Read Many) storage, and provide bank compliance officers with an interactive verification workbench.`,
-    tags: ['Biometrics', 'AML/Sanctions', 'WORM Storage', 'Liveness AI', 'Compliance'],
-    defaultFactors: {
-      requirementStability: 70,
-      regulatoryCriticality: 95,
-      securityRisk: 92,
-      complexity: 78,
-      changeFrequency: 50,
-      continuousDeliveryNeed: 75,
-      formalVerificationNeed: 85,
-      failureConsequence: 88
-    }
-  },
-  {
-    id: 'telemedicine_ehr',
-    title: 'Healthcare Telemedicine & Electronic Prescription Network',
-    category: 'Healthcare / Critical Systems',
-    scenarioDescription: `Design a secure telemedicine consultation and e-prescription platform connecting patients, licensed physicians, and registered pharmacies. Patients can schedule end-to-end encrypted video appointments, share symptom history, and receive digitally signed prescriptions. The system must enforce role-based access control, strict HIPAA Privacy/Security rules, and DEA regulations for electronic prescribing of controlled substances (EPCS) including two-factor digital signatures. All medical records and chat transcripts must be encrypted with AES-256 at rest and TLS 1.3 in transit, with full audit logging of access events.`,
-    tags: ['HIPAA', 'e-Prescription', 'End-to-End Encryption', 'Healthcare', 'Audit Trails'],
-    defaultFactors: {
-      requirementStability: 80,
-      regulatoryCriticality: 90,
       securityRisk: 90,
-      complexity: 75,
-      changeFrequency: 45,
-      continuousDeliveryNeed: 70,
-      formalVerificationNeed: 82,
-      failureConsequence: 92
+      technicalUncertainty: 45,
+      failureConsequence: 99,
+      continuousDeploymentNeed: 40,
+      formalVerificationNeed: 97
     }
   },
   {
-    id: 'wealth_portfolio',
-    title: 'Robo-Advisory Wealth Management & Algorithmic Portfolio Engine',
-    category: 'Capital Markets / Investments',
-    scenarioDescription: `Develop an automated investment advisory and portfolio rebalancing platform for retail investors. The system collects investor risk appetite questionnaires, creates personalized ETF portfolios based on Modern Portfolio Theory, and automatically rebalances assets when market drift exceeds defined tolerance thresholds. The system must integrate with market exchanges for real-time price feeds, generate automated trade execution orders via broker APIs, and produce MiFID II / SEC compliant suitability and disclosure reports. Requires robust historical backtesting, real-time stress testing, and human fiduciary advisor sign-off capabilities for high-net-worth rebalances.`,
-    tags: ['FinTech', 'Robo-Advisory', 'SEC/MiFID II', 'Market Feeds', 'Algorithmic'],
+    id: 'hospital_telemedicine_erx',
+    title: 'Hospital Telemedicine & e-Prescription (e-Rx) Network',
+    category: 'Telehealth / Pharmacy',
+    defaultRole: 'patient_rep',
+    scenarioDescription: `Design a secure hospital telemedicine and electronic prescription (e-Rx) platform connecting outpatients, specialist doctors, and the hospital pharmacy. Patients book encrypted video consultations, share prior lab reports, and receive digitally signed prescriptions with two-factor clinician verification (DEA EPCS / NABH medication safety). The cloud-native microservices backend requires continuous secure deployment with automated SAST/DAST scanning, HIPAA/ABDM consent management, and fast user-friendly mobile access.`,
+    tags: ['Telemedicine', 'e-Rx 2FA', 'DevSecOps', 'ABDM Consent'],
     defaultFactors: {
-      requirementStability: 60,
+      requirementStability: 52,
+      changeFrequency: 76,
       regulatoryCriticality: 88,
-      securityRisk: 86,
-      complexity: 85,
-      changeFrequency: 70,
-      continuousDeliveryNeed: 85,
-      formalVerificationNeed: 80,
-      failureConsequence: 85
+      securityRisk: 92,
+      technicalUncertainty: 40,
+      failureConsequence: 84,
+      continuousDeploymentNeed: 94,
+      formalVerificationNeed: 74
     }
+  },
+  {
+    id: 'hospital_lis_pacs',
+    title: 'Diagnostic Lab (LIS) & Radiology Imaging (PACS) Portal',
+    category: 'Diagnostics / Interoperability',
+    defaultRole: 'lab_pharmacy',
+    scenarioDescription: `Implement a Hospital Laboratory Information System (LIS) and Radiology PACS portal that ingests automated analyzer results via HL7 FHIR and DICOM medical images. Pathologists must review and digitally sign critical abnormal lab values before they become visible on the patient portal, while triggering instant escalation alerts to attending physicians. The system must protect PHI with strict role-based access control, maintain 7-year regulatory retention, and support seamless integration with legacy hospital management software.`,
+    tags: ['HL7 FHIR', 'DICOM PACS', 'Critical Lab Alerts', 'Legacy HMS'],
+    defaultFactors: {
+      requirementStability: 74,
+      changeFrequency: 44,
+      regulatoryCriticality: 90,
+      securityRisk: 88,
+      technicalUncertainty: 52,
+      failureConsequence: 88,
+      continuousDeploymentNeed: 64,
+      formalVerificationNeed: 86
+    }
+  },
+  {
+    id: 'hospital_billing_claims',
+    title: 'Hospital Billing, Insurance Claims & Pharmacy Inventory',
+    category: 'Hospital Operations / Finance',
+    defaultRole: 'compliance',
+    scenarioDescription: `Create an integrated Hospital Billing, Cashless Insurance Pre-Authorization (TPA/FHIR Claims), and Pharmacy Inventory module. It must automate ICD-10 diagnostic coding validation, verify patient insurance eligibility in real time, track controlled narcotics stock with batch expiry alerts, and generate itemized GST/statutory hospital invoices. Requires tamper-evident financial and clinical audit trails, PCI/HIPAA data protection, and automated fraud/duplicate-claim checks.`,
+    tags: ['Insurance Claims', 'ICD-10', 'Pharmacy Stock', 'Audit Trails'],
+    defaultFactors: {
+      requirementStability: 68,
+      changeFrequency: 58,
+      regulatoryCriticality: 92,
+      securityRisk: 90,
+      technicalUncertainty: 38,
+      failureConsequence: 82,
+      continuousDeploymentNeed: 74,
+      formalVerificationNeed: 80
+    }
+  }
+];
+
+export const HOSPITAL_SDLC_EXAMPLES = [
+  {
+    label: 'Waterfall: Statutory Reporting',
+    title: 'Hospital Statutory Reporting (Stable + Approvals → Waterfall)',
+    scenario: 'A hospital statutory health ministry reporting module with stable requirements and extensive approvals from medical directors, legal teams, and national accreditation boards before development begins.'
+  },
+  {
+    label: 'V-Model: ICU Ventilator V&V',
+    title: 'ICU Ventilator Software (Strict V&V → V-Model)',
+    scenario: 'An ICU medical ventilator and infusion pump control software module requiring strict verification/validation, formal IEC 62304 traceability, and life-critical clinical audit gates.'
+  },
+  {
+    label: 'Spiral: AI Sepsis R&D',
+    title: 'AI Sepsis Early-Warning R&D (High Uncertainty → Spiral)',
+    scenario: 'An experimental hospital clinical research platform using novel AI models for early sepsis prediction with high uncertainty and technical risk across heterogeneous ICU sensor hardware.'
+  },
+  {
+    label: 'Agile: Outpatient Feedback',
+    title: 'Outpatient Feedback & Queue App (Changing Reqs → Agile)',
+    scenario: 'A hospital outpatient queue tracker and patient satisfaction mobile app with frequently changing requirements, bi-weekly UX experiments, and evolving clinic workflow feedback.'
+  },
+  {
+    label: 'DevSecOps: Cloud Telehealth',
+    title: 'Cloud Telehealth Microservices (Secure Deploy → DevSecOps)',
+    scenario: 'A cloud-native hospital telemedicine microservices platform requiring continuous secure deployment, automated SAST/DAST security gates in CI/CD, and zero-downtime canary rollouts.'
+  },
+  {
+    label: 'Hybrid: Regulated EHR',
+    title: 'Multi-Hospital EHR (High Regulation + Evolving → Hybrid)',
+    scenario: 'A multi-hospital EHR and digital patient onboarding system subject to high regulation (HIPAA, NABH, ABDM) and evolving requirements as new clinical departments and compliance rules roll out.'
   }
 ];

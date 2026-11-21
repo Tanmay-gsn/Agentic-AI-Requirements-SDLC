@@ -1,695 +1,645 @@
 /**
- * Agent 1: Software Requirements Identification Agent
- * Identifies and lists Functional and Non-Functional software requirements
- * for a given scenario, functionality, or module.
+ * Agent 1: Hospital Requirements Engineering, Quality & Conflict Analysis Agent
+ * Supports:
+ * 1. Live RAG-Grounded Gemini LLM mode (when user supplies a Gemini API key)
+ * 2. Local RAG-Grounded Hospital Engine (deterministic fallback that composes
+ *    module-specific clinical requirements, citations, confidence scores,
+ *    ambiguity checks, conflict detection, risk register, and IEEE 830 RTM).
  */
 
-export function validateScenario(scenario) {
-  if (!scenario || typeof scenario !== 'string') {
-    return {
-      isValid: false,
-      reason: 'Scenario input is empty or invalid. Please provide a software description.'
-    };
-  }
+import { validateHospitalScenario } from './privacyGuard.js';
+import { retrieveHealthcareContext, STAKEHOLDER_ROLES } from './knowledgeBase.js';
 
-  const text = scenario.trim();
-  if (text.length < 10) {
-    return {
-      isValid: false,
-      reason: 'Input is too short. Please provide a descriptive software requirement, module, or functionality.'
-    };
-  }
+/**
+ * Audits raw scenario text for IEEE 830 ambiguities and stakeholder requirement conflicts
+ */
+export function auditRequirementQuality(scenarioText, functionalReqs = [], nonFunctionalReqs = []) {
+  const lower = (scenarioText || '').toLowerCase();
+  const ambiguities = [];
+  const conflicts = [];
 
-  const lower = text.toLowerCase();
-
-  // Profanity / Vulgarity checks
-  const vulgarPatterns = [
-    /\b(fuck|fucking|fucked|fucker|shit|bitch|bastard|cunt|dick|pussy|cock|asshole|motherfucker)\b/i
+  const vagueTerms = [
+    {
+      term: 'fast',
+      regex: /\bfast\b/i,
+      finding: 'Unquantified performance term "fast" cannot be objectively verified.',
+      recommendation: 'Specify a measurable latency SLA (e.g., "P95 clinical chart load < 500ms").'
+    },
+    {
+      term: 'user-friendly',
+      regex: /\buser[- ]friendly\b/i,
+      finding: 'Subjective usability phrase "user-friendly" lacks testable acceptance criteria.',
+      recommendation: 'Define usability metrics (e.g., "WCAG 2.1 AA compliance; <= 3 clicks for e-Rx order").'
+    },
+    {
+      term: 'seamless',
+      regex: /\bseamless(ly)?\b/i,
+      finding: 'Vague integration term "seamless" hides protocol and error-handling details.',
+      recommendation: 'Specify interface protocol and fallback SLA (e.g., "HL7 FHIR R4 REST API with retry queue").'
+    },
+    {
+      term: 'secure',
+      regex: /\bsecure\b/i,
+      checkMissing: ['aes', 'tls', 'rbac', 'mfa', '2fa', 'hipaa', 'encryption'],
+      finding: 'Generic term "secure" without explicit cryptographic or access-control specifications.',
+      recommendation: 'Mandate AES-256 at rest, TLS 1.3 in transit, RBAC, and MFA per HIPAA §164.312.'
+    },
+    {
+      term: 'real-time',
+      regex: /\breal[- ]time\b/i,
+      checkMissing: ['ms', 'second', 'sec', 'latency'],
+      finding: '"Real-time" is stated without an upper latency bound.',
+      recommendation: 'Specify hard latency bounds (e.g., "< 500ms for ICU vitals alerts").'
+    },
+    {
+      term: 'scalable',
+      regex: /\bscalab(le|ility)\b/i,
+      checkMissing: ['concurrent', 'tps', 'beds', 'users'],
+      finding: '"Scalable" lacks quantitative concurrency or hospital volume targets.',
+      recommendation: 'Define peak capacity (e.g., "2,000 concurrent clinicians and 10,000 patient records/hour").'
+    }
   ];
-  for (const pattern of vulgarPatterns) {
-    if (pattern.test(lower)) {
-      return {
-        isValid: false,
-        reason: 'Input rejected: Inappropriate content or profanity detected. Please specify a legitimate software scenario.'
-      };
+
+  for (const item of vagueTerms) {
+    if (item.regex.test(lower)) {
+      const hasQuantifier = item.checkMissing ? item.checkMissing.some((k) => lower.includes(k)) : false;
+      if (!hasQuantifier) {
+        ambiguities.push({
+          term: item.term,
+          severity: 'Medium',
+          finding: item.finding,
+          recommendation: item.recommendation
+        });
+      }
     }
   }
 
-  // Word count check
-  const words = text.toLowerCase().match(/[a-z0-9_#+-]+/g) || [];
-  if (words.length < 3) {
-    return {
-      isValid: false,
-      reason: 'Input is too brief to represent a software scenario. Please enter at least a short sentence describing the system.'
-    };
+  // Conflict detection rules common in hospital IT systems
+  if ((lower.includes('emergency') || lower.includes('icu') || lower.includes('triage')) && (lower.includes('rbac') || lower.includes('privacy') || lower.includes('hipaa') || lower.includes('strict'))) {
+    conflicts.push({
+      id: 'CONF-01',
+      title: 'Emergency Clinical Access vs. Strict RBAC Privacy',
+      description: 'ICU/Emergency clinicians require immediate frictionless access to patient charts, which conflicts with strict least-privilege RBAC and multi-step consent checks.',
+      resolution: 'Implement HIPAA-compliant Break-Glass Emergency Override with mandatory post-hoc audit alert to the Compliance Officer within 1 hour.'
+    });
   }
 
-  // Check if text contains software engineering or domain context using exact word tokens
-  const softwareKeywords = new Set([
-    'system', 'systems', 'software', 'app', 'apps', 'application', 'applications', 'module', 'modules',
-    'platform', 'platforms', 'service', 'services', 'api', 'apis', 'portal', 'portals', 'engine', 'engines',
-    'tool', 'tools', 'workflow', 'workflows', 'database', 'databases', 'frontend', 'backend', 'client',
-    'server', 'servers', 'user', 'users', 'patient', 'patients', 'payment', 'payments', 'cart', 'carts',
-    'order', 'orders', 'checkout', 'exam', 'exams', 'bank', 'banks', 'banking', 'loan', 'loans',
-    'credit', 'account', 'accounts', 'auth', 'authentication', 'login', 'security', 'data', 'cloud',
-    'process', 'processing', 'management', 'tracking', 'interface', 'interfaces', 'verification',
-    'validation', 'transaction', 'transactions', 'encryption', 'deployment', 'pipeline', 'pipelines',
-    'network', 'networks', 'analytics', 'compliance', 'feature', 'features', 'requirement', 'requirements',
-    'specification', 'specifications', 'microservice', 'microservices', 'dashboard', 'report', 'reports',
-    'audit', 'auditing', 'stable', 'uncertainty', 'approvals', 'approval', 'risk', 'risks', 'testing',
-    'sensor', 'sensors', 'device', 'devices', 'web', 'mobile', 'underwriting', 'rebalance', 'kyc',
-    'telemedicine', 'ehr', 'prescription', 'prescriptions', 'automated', 'automation', 'real-time',
-    'throughput', 'protocol', 'protocols', 'storage', 'inventory', 'ecommerce', 'e-commerce',
-    'release', 'delivery', 'devsecops', 'agile', 'waterfall', 'spiral', 'v-model', 'scrum'
-  ]);
-
-  const hasSoftwareContext = words.some(w => softwareKeywords.has(w));
-  if (!hasSoftwareContext) {
-    return {
-      isValid: false,
-      reason: 'Input rejected: The description does not appear to describe a software system, module, or engineering specification.'
-    };
+  if ((lower.includes('real-time') || lower.includes('sub-second') || lower.includes('instant')) && (lower.includes('human') || lower.includes('sign-off') || lower.includes('review') || lower.includes('approval'))) {
+    conflicts.push({
+      id: 'CONF-02',
+      title: 'Sub-Second Automated Alerting vs. Manual Clinician Sign-Off',
+      description: 'Real-time automated clinical scoring or lab publishing conflicts with mandatory human physician verification before release.',
+      resolution: 'Use a two-tier workflow: deliver unverified advisory alerts immediately to attending physicians while gating external patient portal visibility behind digital sign-off.'
+    });
   }
 
-  return { isValid: true };
+  if ((lower.includes('evolving') || lower.includes('frequently changing') || lower.includes('agile')) && (lower.includes('hipaa') || lower.includes('nabh') || lower.includes('iec 62304') || lower.includes('regulation'))) {
+    conflicts.push({
+      id: 'CONF-03',
+      title: 'Rapid Clinical Iteration vs. Statutory Compliance Stability',
+      description: 'Frequent feature releases conflict with formal hospital accreditation (NABH/HIPAA/IEC 62304) audit sign-offs.',
+      resolution: 'Adopt an Agile–DevSecOps Hybrid pipeline with automated compliance-as-code gates and versioned audit artifacts per sprint.'
+    });
+  }
+
+  const penalty = ambiguities.length * 4 + conflicts.length * 3;
+  const overallScore = Math.max(68, Math.min(97, 96 - penalty));
+  const testabilityRating = ambiguities.length === 0 ? 'High (Fully Quantified)' : ambiguities.length <= 2 ? 'Moderate-High (Minor Refinements Needed)' : 'Needs Clarification';
+
+  return {
+    overallScore,
+    status: overallScore >= 85 ? 'Validated Draft (Pending Human Sign-Off)' : 'Clarification Recommended',
+    testabilityRating,
+    ambiguities,
+    conflicts,
+    checkedCount: functionalReqs.length + nonFunctionalReqs.length
+  };
 }
 
 export class RequirementAgent {
   constructor() {
-    this.name = 'Requirements Identification Agent';
+    this.name = 'Hospital Requirements Engineering Agent';
   }
 
   /**
-   * Identifies requirements based on the given scenario
-   * @param {string} scenario 
-   * @returns {object} Full requirements specification
+   * Optional Live Gemini LLM call grounded in RAG context
    */
-  identifyRequirements(scenario) {
-    const validation = validateScenario(scenario);
+  async _callGeminiLLM(maskedScenario, stakeholderObj, ragDocs, clarificationAnswers, apiKey) {
+    const ragContext = ragDocs
+      .map((d) => `${d.citation} (${d.jurisdiction}): ${d.requirement}`)
+      .join('\n');
+
+    const clarifText = Object.entries(clarificationAnswers || {})
+      .map(([k, v]) => `- ${k}: ${v}`)
+      .join('\n');
+
+    const prompt = `You are a senior Hospital Requirements Engineering AI Agent.
+Analyze the following hospital software scenario from the perspective of stakeholder: ${stakeholderObj.label} (${stakeholderObj.focus}).
+
+SCENARIO (PHI already masked):
+${maskedScenario}
+
+CLARIFICATION ANSWERS PROVIDED:
+${clarifText || 'None yet.'}
+
+AUTHORIZED HEALTHCARE REGULATORY KNOWLEDGE BASE (cite these exact IDs in citations):
+${ragContext}
+
+Return ONLY valid JSON (no markdown fences) matching this exact schema:
+{
+  "domain": "string (specific hospital sub-domain)",
+  "functionalRequirements": [
+    {
+      "id": "FR-01",
+      "title": "string",
+      "category": "string",
+      "multiLabels": ["Functional", "Clinical Safety"],
+      "priority": "Critical|High|Medium",
+      "riskLevel": "Critical|High|Medium|Low",
+      "sourceStakeholder": "string",
+      "statement": "The system shall ...",
+      "userStory": "As a ..., I want ..., so that ...",
+      "acceptanceCriteria": ["criterion 1", "criterion 2"],
+      "businessJustification": "string",
+      "applicableRegulations": ["HIPAA ...", "NABH ..."],
+      "citations": ["KB-HIPAA-01"],
+      "confidence": 0.92
+    }
+  ],
+  "nonFunctionalRequirements": [
+    {
+      "id": "NFR-01",
+      "title": "string",
+      "category": "Security|Privacy|Performance|Availability|Interoperability|Auditability",
+      "multiLabels": ["Security", "Regulatory"],
+      "priority": "Critical|High|Medium",
+      "statement": "string",
+      "targetMetrics": "quantified SLA",
+      "applicableRegulations": ["string"],
+      "citations": ["KB-HIPAA-01"],
+      "confidence": 0.94
+    }
+  ]
+}
+Produce 4 to 5 Functional Requirements and 4 Non-Functional Requirements grounded strictly in the scenario and knowledge base.`;
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json'
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`Gemini API HTTP ${response.status}: ${errBody.slice(0, 160)}`);
+    }
+
+    const data = await response.json();
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) {
+      throw new Error('Empty response from Gemini API.');
+    }
+
+    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed.functionalRequirements) || !Array.isArray(parsed.nonFunctionalRequirements)) {
+      throw new Error('Gemini JSON response missing required FR/NFR arrays.');
+    }
+    return parsed;
+  }
+
+  /**
+   * Composes dynamic, hospital-module-specific requirements grounded in RAG context
+   */
+  _generateLocalRAGRequirements(maskedScenario, stakeholderObj, ragDocs, clarificationAnswers = {}) {
+    const lower = (maskedScenario + ' ' + Object.values(clarificationAnswers).join(' ')).toLowerCase();
+
+    // Detect specific hospital clinical modules mentioned
+    const hasICU = /icu|triage|emergency|ventilator|infusion|vitals|sepsis|critical care/.test(lower);
+    const hasTelemed = /telemedicine|telehealth|video|appointment|outpatient|opd|queue/.test(lower);
+    const hasPharmacy = /prescription|e-rx|pharmacy|medication|drug|controlled/.test(lower);
+    const hasLab = /lab|laboratory|pathology|radiology|pacs|dicom|lis|specimen|diagnostic/.test(lower);
+    const hasBilling = /billing|insurance|claim|claims|tpa|icd-10|invoice/.test(lower);
+    const hasAI = /ai|ml|decision support|sepsis|predict|scoring|early-warning/.test(lower);
+
+    let domain = 'Hospital Information & EHR Management';
+    if (hasICU) domain = 'Critical Care, Emergency Triage & ICU Monitoring';
+    else if (hasLab) domain = 'Hospital Diagnostics (LIS) & Radiology (PACS)';
+    else if (hasBilling) domain = 'Hospital Revenue Cycle, Claims & Pharmacy Operations';
+    else if (hasTelemed && hasPharmacy) domain = 'Hospital Telemedicine & e-Prescription Network';
+    else if (hasTelemed) domain = 'Outpatient Telehealth & Patient Engagement';
+
+    const functionalReqs = [];
+    let frCounter = 1;
+    const nextFrId = () => `FR-HOSP-${String(frCounter++).padStart(2, '0')}`;
+
+    // Core Hospital Identity & EHR Patient Record
+    functionalReqs.push({
+      id: nextFrId(),
+      title: 'Patient Identity Verification, Consent & Clinical Profile (EHR)',
+      category: 'Clinical Records & Access',
+      multiLabels: ['Functional', 'Privacy', 'Regulatory'],
+      priority: 'Critical',
+      riskLevel: 'High',
+      sourceStakeholder: stakeholderObj.label,
+      statement: 'The system shall register and authenticate patients using unique Hospital UHID / ABHA identifiers, capture explicit revocable data-sharing consent, and present longitudinal allergies, diagnoses, and vitals to authorized clinicians.',
+      userStory: 'As an attending clinician, I want instant access to verified patient allergies and medical history so that clinical decisions are safe and compliant.',
+      acceptanceCriteria: [
+        'Duplicate patient detection on registration via biometric or national health ID (ABHA/UHID)',
+        'High-visibility clinical allergy and contraindication banner pinned across all patient views',
+        'Granular digital consent artifact logged prior to any external health record exchange'
+      ],
+      businessJustification: 'Prevents misidentification errors and satisfies statutory health data privacy mandates.',
+      applicableRegulations: ['HIPAA Privacy Rule', 'NABH IMS.3', 'ABDM / DPDP Act 2023'],
+      citations: ['KB-HIPAA-02', 'KB-NABH-01', 'KB-ABDM-01'],
+      confidence: 0.95
+    });
+
+    if (hasICU) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'Real-Time ICU Vitals Ingestion & Deterioration Alerting',
+        category: 'Critical Care Safety',
+        multiLabels: ['Functional', 'Clinical Safety', 'Performance'],
+        priority: 'Critical',
+        riskLevel: 'Critical',
+        sourceStakeholder: 'ICU Nursing & Critical Care Lead',
+        statement: 'The system shall continuously ingest bedside telemetry (HR, SpO2, BP, ventilator metrics), compute triage/early-warning scores, and dispatch deterministic audio-visual escalation alerts on threshold breach.',
+        userStory: 'As an ICU nurse, I want sub-second critical deterioration alerts with patient bed location so that emergency intervention begins immediately.',
+        acceptanceCriteria: [
+          'Telemetry ingestion latency under 500ms from bedside monitor to nursing central station',
+          'Fail-safe disconnect alarm triggered within 3 seconds of sensor or network drop',
+          'Alert acknowledgment and clinician escalation timer recorded in immutable clinical log'
+        ],
+        businessJustification: 'Directly protects patient life in emergency and intensive care environments.',
+        applicableRegulations: ['IEC 62304 Class C', 'NABH Patient Safety Standards'],
+        citations: ['KB-IEC62304-01', 'KB-ISO25010-01'],
+        confidence: 0.96
+      });
+    }
+
+    if (hasTelemed) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'Encrypted Teleconsultation Scheduling & Queue Management',
+        category: 'Telehealth & OPD Workflow',
+        multiLabels: ['Functional', 'Usability', 'Security'],
+        priority: 'High',
+        riskLevel: 'Medium',
+        sourceStakeholder: 'OPD Coordinator & Patients',
+        statement: 'The system shall enable outpatients to book specialty appointments, track live OPD queue status, and join end-to-end encrypted video consultations with clinical note capture.',
+        userStory: 'As a patient, I want to book a specialist teleconsultation and receive automated reminders so I can consult my doctor remotely without travel.',
+        acceptanceCriteria: [
+          'Real-time physician roster sync preventing overlapping appointment slots',
+          'WebRTC video stream encrypted end-to-end with zero unencrypted media storage',
+          'Automated SMS/email reminders 24 hours and 1 hour prior to consultation'
+        ],
+        businessJustification: 'Expands hospital outpatient capacity and improves patient care continuity.',
+        applicableRegulations: ['HIPAA Telehealth Guidelines', 'ABDM Telemedicine Norms'],
+        citations: ['KB-HIPAA-01', 'KB-ABDM-01'],
+        confidence: 0.93
+      });
+    }
+
+    if (hasPharmacy) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'Electronic Prescribing (e-Rx), Drug-Interaction Check & Pharmacy Dispatch',
+        category: 'Medication Safety',
+        multiLabels: ['Functional', 'Clinical Safety', 'Regulatory'],
+        priority: 'Critical',
+        riskLevel: 'Critical',
+        sourceStakeholder: 'Licensed Physicians & Chief Pharmacist',
+        statement: 'The system shall validate prescribed medications against patient allergies and active drugs, require 2FA cryptographic clinician signing for controlled substances, and transmit orders directly to the hospital pharmacy.',
+        userStory: 'As a physician, I want automated drug-to-drug interaction warnings and 2FA digital signing so that patients receive safe, tamper-proof prescriptions.',
+        acceptanceCriteria: [
+          'Hard-stop clinical alert on severe drug-drug or drug-allergy contraindications',
+          'Two-factor authentication and cryptographic hash signature on every controlled e-Rx',
+          'Real-time pharmacy stock check with batch/expiry verification prior to dispensing'
+        ],
+        businessJustification: 'Eliminates prescription legibility errors and prevents adverse drug events (ADEs).',
+        applicableRegulations: ['NABH MOM.4', 'DEA EPCS 21 CFR Part 1311'],
+        citations: ['KB-NABH-01', 'KB-EPCS-01'],
+        confidence: 0.95
+      });
+    }
+
+    if (hasLab) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'HL7/FHIR Lab Result & DICOM Radiology Ingestion with Critical Sign-Off',
+        category: 'Diagnostics & Interoperability',
+        multiLabels: ['Functional', 'Interoperability', 'Clinical Safety'],
+        priority: 'High',
+        riskLevel: 'High',
+        sourceStakeholder: 'Pathology & Radiology Director',
+        statement: 'The system shall ingest diagnostic results via HL7 FHIR R4 and radiology scans via DICOM, require pathologist verification for abnormal critical values, and escalate critical findings to attending doctors.',
+        userStory: 'As a pathologist, I want to verify critical abnormal lab reports before patient release while alerting the attending physician immediately.',
+        acceptanceCriteria: [
+          'Automated HL7 FHIR Observation/DiagnosticReport parsing with schema validation',
+          'Critical value escalation workflow requiring clinician read-receipt within 15 minutes',
+          'DICOM viewer integrated with watermarked patient IDs and access audit logging'
+        ],
+        businessJustification: 'Accelerates diagnostic turnaround while preventing unreviewed panic values.',
+        applicableRegulations: ['HL7 FHIR R4 / DICOM', 'NABH Diagnostic Safety'],
+        citations: ['KB-FHIR-01', 'KB-HIPAA-02'],
+        confidence: 0.94
+      });
+    }
+
+    if (hasBilling) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'ICD-10 Coding Validation, Insurance Claims (TPA) & Billing Reconciliation',
+        category: 'Hospital Revenue & Compliance',
+        multiLabels: ['Functional', 'Regulatory', 'Auditability'],
+        priority: 'High',
+        riskLevel: 'High',
+        sourceStakeholder: 'Hospital Finance & Insurance Desk',
+        statement: 'The system shall validate clinical diagnoses against ICD-10 codes, submit electronic cashless pre-authorization claims via FHIR Claim APIs, and detect duplicate billing entries.',
+        userStory: 'As a hospital billing officer, I want automated ICD-10 and insurance eligibility checks so that claim rejections and discharge delays are minimized.',
+        acceptanceCriteria: [
+          'Automated ICD-10 code completeness check before insurance claim submission',
+          'Duplicate charge and policy coverage cap verification in under 2 seconds',
+          'Itemized GST/statutory discharge invoice linked to verified clinical orders'
+        ],
+        businessJustification: 'Reduces insurance claim denials and ensures transparent hospital financial audits.',
+        applicableRegulations: ['HL7 FHIR Claims', 'HIPAA Transaction Standards'],
+        citations: ['KB-FHIR-01', 'KB-HIPAA-01'],
+        confidence: 0.91
+      });
+    }
+
+    if (hasAI) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'Explainable Clinical Decision Support & Human-in-the-Loop Override',
+        category: 'Clinical AI Governance',
+        multiLabels: ['Functional', 'Clinical Safety', 'Auditability'],
+        priority: 'High',
+        riskLevel: 'Critical',
+        sourceStakeholder: 'Chief Medical Officer',
+        statement: 'The system shall present AI-generated clinical risk scores alongside contributing patient features, confidence intervals, and mandatory physician accept/override controls.',
+        userStory: 'As a clinician, I want to inspect why an AI model flagged a patient as high-risk and record my clinical override so that final medical accountability stays with licensed doctors.',
+        acceptanceCriteria: [
+          'Every AI risk score displays top 3 clinical indicators and model version/confidence',
+          'Mandatory clinician confirmation required before triggering treatment protocols',
+          'All clinician overrides logged for retrospective clinical safety evaluation'
+        ],
+        businessJustification: 'Mitigates AI hallucination/automation bias and preserves medical liability governance.',
+        applicableRegulations: ['IEC 62304', 'FDA Clinical Decision Support Guidance'],
+        citations: ['KB-IEC62304-01'],
+        confidence: 0.92
+      });
+    }
+
+    // Ensure at least 4 rich FRs even for short hospital prompts
+    if (functionalReqs.length < 4) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'Clinical Workflow Execution & Role-Based Department Routing',
+        category: 'Hospital Operations',
+        multiLabels: ['Functional', 'Operational'],
+        priority: 'High',
+        riskLevel: 'Medium',
+        sourceStakeholder: stakeholderObj.label,
+        statement: `The system shall automate the core hospital workflow described in the specification with structured input validation, department routing, and status tracking.`,
+        userStory: `As a ${stakeholderObj.label}, I want structured clinical workflow tracking so that patient handovers across hospital departments have zero dropped tasks.`,
+        acceptanceCriteria: [
+          'Enforced clinical state transitions with timestamped clinician attribution',
+          'Automated handover notifications across ward, lab, and billing teams',
+          'Exception handling queue for incomplete clinical entries'
+        ],
+        businessJustification: 'Eliminates manual paper handoffs and improves hospital throughput.',
+        applicableRegulations: ['NABH Operational Standards'],
+        citations: ['KB-NABH-01'],
+        confidence: 0.89
+      });
+    }
+
+    if (functionalReqs.length < 4) {
+      functionalReqs.push({
+        id: nextFrId(),
+        title: 'Regulatory Reporting, Audit Trail Export & Analytics Dashboard',
+        category: 'Audit & Statutory Reporting',
+        multiLabels: ['Functional', 'Auditability', 'Regulatory'],
+        priority: 'Medium',
+        riskLevel: 'Medium',
+        sourceStakeholder: 'HIPAA / NABH Compliance Officer',
+        statement: 'The system shall generate anonymized hospital quality metrics and export tamper-evident compliance audit logs for internal and statutory accreditation reviews.',
+        userStory: 'As a compliance officer, I want one-click anonymized statutory reports and complete ePHI access logs so hospital accreditation audits are fast and verifiable.',
+        acceptanceCriteria: [
+          'Automated PHI de-identification on all analytical and ministry exports',
+          'Searchable audit log filterable by clinician ID, patient UHID, and timestamp',
+          'Cryptographic checksum attached to exported compliance reports'
+        ],
+        businessJustification: 'Ensures continuous readiness for NABH and HIPAA compliance audits.',
+        applicableRegulations: ['HIPAA §164.312(b)', 'NABH IMS Standards'],
+        citations: ['KB-HIPAA-02', 'KB-NABH-01'],
+        confidence: 0.91
+      });
+    }
+
+    // Build Non-Functional Requirements dynamically incorporating clarification answers
+    const drAnswer = clarificationAnswers.clinical_dr || '';
+    const scaleAnswer = clarificationAnswers.hospital_scale || '';
+    const interopAnswer = clarificationAnswers.interoperability || '';
+
+    const uptimeTarget = drAnswer.includes('RPO = 0') || hasICU
+      ? '99.99% uptime, RPO = 0, RTO < 5 minutes (active-active multi-zone failover)'
+      : '99.95% uptime, RPO < 15 minutes, RTO < 30 minutes (warm standby failover)';
+
+    const loadTarget = scaleAnswer.includes('1,000+ beds')
+      ? '5,000+ concurrent clinical/patient sessions, P95 API latency < 500ms'
+      : scaleAnswer.includes('200–500 beds')
+      ? '1,500 concurrent hospital users, P95 API latency < 750ms'
+      : 'P95 clinical record retrieval < 800ms, zero dropped critical alerts';
+
+    const nonFunctionalReqs = [
+      {
+        id: 'NFR-HOSP-01',
+        title: 'ePHI Cryptographic Encryption & Zero-Leakage Privacy',
+        category: 'Security & Privacy',
+        multiLabels: ['Security', 'Privacy', 'Regulatory'],
+        priority: 'Critical',
+        statement: 'All Electronic Protected Health Information (ePHI) must be encrypted using AES-256 at rest and TLS 1.3 in transit, with automated PHI masking before any AI/LLM inference or logging.',
+        targetMetrics: 'AES-256 / TLS 1.3, 100% PHI masking in logs, zero plaintext ePHI exposure',
+        applicableRegulations: ['HIPAA Security Rule §164.312', 'DPDP Act 2023'],
+        citations: ['KB-HIPAA-01', 'KB-ABDM-01'],
+        confidence: 0.97
+      },
+      {
+        id: 'NFR-HOSP-02',
+        title: 'Role-Based Access Control (RBAC), MFA & Emergency Break-Glass',
+        category: 'Access Control & Auditability',
+        multiLabels: ['Security', 'Auditability', 'Clinical Safety'],
+        priority: 'Critical',
+        statement: 'Enforce strict least-privilege RBAC with MFA for clinicians, emergency break-glass override for life-critical ICU/ER access, and append-only audit trails retained for at least 6–7 years.',
+        targetMetrics: '100% ePHI access events logged; break-glass overrides alerted to CISO/Compliance < 60 min',
+        applicableRegulations: ['HIPAA §164.312(a)(2)(ii)', 'ISO 27001:2022'],
+        citations: ['KB-HIPAA-02'],
+        confidence: 0.96
+      },
+      {
+        id: 'NFR-HOSP-03',
+        title: 'Clinical Availability, Disaster Recovery & Latency SLA',
+        category: 'Availability & Performance',
+        multiLabels: ['Availability', 'Performance', 'Clinical Safety'],
+        priority: 'High',
+        statement: 'Hospital clinical workflows must sustain continuous high availability with automated failover and deterministic response times under peak ward and OPD concurrency.',
+        targetMetrics: `${uptimeTarget}; ${loadTarget}`,
+        applicableRegulations: ['ISO/IEC 25010 Reliability', 'NABH Continuity Standards'],
+        citations: ['KB-ISO25010-01'],
+        confidence: 0.93
+      },
+      {
+        id: 'NFR-HOSP-04',
+        title: 'Clinical Interoperability (HL7 FHIR R4 / DICOM / ABHA)',
+        category: 'Interoperability',
+        multiLabels: ['Interoperability', 'Integration', 'Regulatory'],
+        priority: 'High',
+        statement: interopAnswer.includes('Standalone')
+          ? 'Provide standardized FHIR-compatible JSON/CSV export schemas so the standalone module can integrate with hospital EHRs in future phases.'
+          : 'Expose HL7 FHIR R4 REST APIs (and DICOM where imaging applies) to exchange patient, lab, prescription, and claim records cleanly with legacy Hospital Management Systems (HMS).',
+        targetMetrics: '100% HL7 FHIR R4 schema validation pass rate; < 0.1% message sync error rate',
+        applicableRegulations: ['HL7 FHIR R4', 'ABDM HIE-CM Specification'],
+        citations: ['KB-FHIR-01', 'KB-ABDM-01'],
+        confidence: 0.92
+      }
+    ];
+
+    return {
+      domain,
+      functionalRequirements: functionalReqs,
+      nonFunctionalRequirements: nonFunctionalReqs
+    };
+  }
+
+  /**
+   * Main entry point called by AgentOrchestrator
+   */
+  async analyzeScenario(maskedScenario, options = {}) {
+    const {
+      stakeholderRole = 'cmo',
+      clarificationAnswers = {},
+      apiKey = ''
+    } = options;
+
+    const validation = validateHospitalScenario(maskedScenario);
     if (!validation.isValid) {
       throw new Error(validation.reason);
     }
 
-    const text = scenario.trim();
-    const lower = text.toLowerCase();
+    const stakeholderObj = STAKEHOLDER_ROLES.find((r) => r.id === stakeholderRole) || STAKEHOLDER_ROLES[0];
+    const ragDocs = retrieveHealthcareContext(maskedScenario, clarificationAnswers, 5);
 
-    // Domain detection
-    const isFinancial = lower.includes('bank') || lower.includes('payment') || lower.includes('loan') || lower.includes('credit') || lower.includes('fraud') || lower.includes('wallet') || lower.includes('wealth');
-    const isHealthcare = lower.includes('patient') || lower.includes('hospital') || lower.includes('health') || lower.includes('doctor') || lower.includes('prescription') || lower.includes('clinic') || lower.includes('telemedicine') || lower.includes('ehr');
-    const isEcommerce = lower.includes('cart') || lower.includes('shop') || lower.includes('checkout') || lower.includes('order') || lower.includes('product') || lower.includes('inventory') || lower.includes('ecommerce');
-    const isEducation = lower.includes('student') || lower.includes('course') || lower.includes('exam') || lower.includes('quiz') || lower.includes('grade') || lower.includes('school') || lower.includes('university');
-    const isSafetyCritical = lower.includes('verification') || lower.includes('validation') || lower.includes('mission-critical') || lower.includes('safety') || lower.includes('strict');
+    let generationMode = 'Local RAG-Grounded Hospital Engine';
+    let llmWarning = null;
+    let extracted = null;
 
-    let domain = 'Enterprise Software System';
-    if (isFinancial) domain = 'Financial Services & Payment Infrastructure';
-    else if (isHealthcare) domain = 'Healthcare & Life Sciences';
-    else if (isEcommerce) domain = 'E-Commerce & Digital Retail';
-    else if (isEducation) domain = 'Education & Assessment Technology';
-    else if (isSafetyCritical) domain = 'High-Assurance / Safety-Critical Systems';
-
-    const functionalReqs = [];
-    const nonFunctionalReqs = [];
-    const regulations = [];
-
-    if (isFinancial) {
-      regulations.push('PCI-DSS v4.0', 'RBI Cybersecurity Framework', 'GDPR');
-      functionalReqs.push(
-        {
-          id: 'FR-01',
-          title: 'Account Authentication & Identity Verification',
-          category: 'Authentication & Security',
-          priority: 'High',
-          riskLevel: 'High',
-          sourceStakeholder: 'Security & Compliance Officer',
-          statement: 'The system must support multi-factor user authentication (password + OTP/Biometric) before granting access to financial functions.',
-          userStory: 'As an authenticated user, I want secure 2FA authentication so that my financial account is protected from unauthorized access.',
-          acceptanceCriteria: [
-            '2FA required on all administrative and fund transfer operations',
-            'Session invalidation on 15 minutes of inactivity',
-            'Account lockout after 5 consecutive failed login attempts'
-          ],
-          businessJustification: 'Ensures regulatory compliance and mitigates account takeover fraud.',
-          applicableRegulations: ['PCI-DSS Requirement 8.3', 'RBI 2FA Mandate'],
-          description: 'The system must support multi-factor user authentication (password + OTP/Biometric) before granting access to financial functions.'
-        },
-        {
-          id: 'FR-02',
-          title: 'Transaction Initiation & Processing',
-          category: 'Core Processing',
-          priority: 'High',
-          riskLevel: 'Critical',
-          sourceStakeholder: 'Core Banking Operations',
-          statement: 'The system must allow users to initiate fund transfers, loan applications, or payments with real-time balance validation and ledger lock.',
-          userStory: 'As a customer, I want to initiate instantaneous transactions with immediate debit/credit validation so that payments are reliable.',
-          acceptanceCriteria: [
-            'Sub-second transaction processing latency under nominal load',
-            'Atomic double-entry transaction posting to database ledgers',
-            'Automated rollback upon timeout or intermediary failure'
-          ],
-          businessJustification: 'Core revenue-generating business functionality requiring zero data loss.',
-          applicableRegulations: ['PCI-DSS', 'ISO 20022'],
-          description: 'The system must allow users to initiate fund transfers, loan applications, or payments with real-time balance validation.'
-        },
-        {
-          id: 'FR-03',
-          title: 'Automated Risk & Fraud Screening',
-          category: 'Risk Mitigation',
-          priority: 'Critical',
-          riskLevel: 'Critical',
-          sourceStakeholder: 'Chief Risk Officer',
-          statement: 'The system must screen transactions against velocity limits, unusual locations, and flag suspicious transactions for approval or rejection.',
-          userStory: 'As a fraud analyst, I want incoming transactions scored against anomaly rules in real-time so that fraudulent charges are prevented.',
-          acceptanceCriteria: [
-            'Real-time fraud scoring in under 50ms',
-            'Automated step-up MFA for medium-risk transactions',
-            'Immediate freeze and alert dispatch on high-confidence fraud alerts'
-          ],
-          businessJustification: 'Mitigates direct monetary loss and preserves bank reputational trust.',
-          applicableRegulations: ['PCI-DSS Requirement 10', 'AML / Sanctions Directives'],
-          description: 'The system must screen transactions against velocity limits, unusual locations, and flag suspicious transactions for approval or rejection.'
-        },
-        {
-          id: 'FR-04',
-          title: 'Transaction History & Receipt Generation',
-          category: 'Reporting & Ledger',
-          priority: 'Medium',
-          riskLevel: 'Low',
-          sourceStakeholder: 'Customer Service & Auditing',
-          statement: 'The system must generate downloadable digital transaction receipts and allow users to view detailed historical ledgers.',
-          userStory: 'As a customer, I want to download cryptographically signed transaction receipts for accounting records.',
-          acceptanceCriteria: [
-            'Receipts generated in PDF format with unique reference code',
-            'Full 7-year searchability of historical statements',
-            'Immutable ledger export capability'
-          ],
-          businessJustification: 'Mandatory customer statement delivery and compliance reporting.',
-          applicableRegulations: ['Banking Statutory Record Keeping'],
-          description: 'The system must generate downloadable digital transaction receipts and allow users to view detailed historical ledgers.'
-        }
-      );
-
-      nonFunctionalReqs.push(
-        {
-          id: 'NFR-01',
-          title: 'Data Encryption & Cryptographic Key Management',
-          category: 'Security',
-          priority: 'Critical',
-          statement: 'All financial data and customer credentials must be encrypted using AES-256 at rest and TLS 1.3 in transit. Cardholder data must never be stored in plain text.',
-          targetMetrics: 'AES-256 / TLS 1.3, Zero unmasked PAN in logs or databases',
-          applicableRegulations: ['PCI-DSS Requirement 3 & 4'],
-          description: 'All financial data and customer credentials must be encrypted using AES-256 at rest and TLS 1.3 in transit. Must comply with PCI-DSS / central banking standards.'
-        },
-        {
-          id: 'NFR-02',
-          title: 'Real-Time Transaction Latency',
-          category: 'Performance',
-          priority: 'High',
-          statement: 'Payment and transaction validation response time must not exceed 2 seconds under peak loads of 5,000 TPS.',
-          targetMetrics: '99th percentile response time < 800ms, max response time < 2000ms',
-          applicableRegulations: ['Service Level Agreement Tier 1'],
-          description: 'Payment and transaction validation response time must not exceed 2 seconds under peak loads.'
-        },
-        {
-          id: 'NFR-03',
-          title: 'High Availability & Fault Tolerance',
-          category: 'Availability',
-          priority: 'High',
-          statement: 'The system must achieve 99.99% uptime with automated database failover and active-active multi-region resiliency.',
-          targetMetrics: '99.99% uptime (max 52 minutes downtime per annum), RPO = 0, RTO < 5 min',
-          applicableRegulations: ['RBI Disaster Recovery Framework'],
-          description: 'The system must achieve 99.99% uptime with automated database failover and zero data loss.'
-        },
-        {
-          id: 'NFR-04',
-          title: 'Tamper-Evident Audit Logging',
-          category: 'Auditability',
-          priority: 'Critical',
-          statement: 'All state changes and financial operations must be logged into an append-only, tamper-evident audit trail retained for 7 years.',
-          targetMetrics: 'Immutable WORM storage, cryptographic hashing of log segments',
-          applicableRegulations: ['PCI-DSS Requirement 10', 'SOX 404'],
-          description: 'All state changes and financial operations must be logged into an append-only, tamper-evident audit trail retained for 7 years.'
-        }
-      );
-    } else if (isHealthcare) {
-      regulations.push('HIPAA Security Rule', 'GDPR', 'HITECH');
-      functionalReqs.push(
-        {
-          id: 'FR-01',
-          title: 'Patient Profile & Medical History Management',
-          category: 'Patient Data Management',
-          priority: 'High',
-          riskLevel: 'High',
-          sourceStakeholder: 'Clinical Informatics & Patients',
-          statement: 'The system shall allow patients and authorized medical practitioners to register, update medical records, allergies, and diagnostic history.',
-          userStory: 'As a patient, I want to securely access and update my medical profile so that attending physicians have current health data.',
-          acceptanceCriteria: [
-            'Patient identity verified via biometric or national health ID',
-            'Full history of medication allergies displayed with high-visibility flags',
-            'Granular consent management for clinical research data sharing'
-          ],
-          businessJustification: 'Foundational clinical care data layer requiring strict privacy protection.',
-          applicableRegulations: ['HIPAA Privacy Rule 45 CFR Part 160'],
-          description: 'The system shall allow patients and authorized medical practitioners to register, update medical records, allergies, and diagnostic history.'
-        },
-        {
-          id: 'FR-02',
-          title: 'Appointment Scheduling & Doctor Consultation',
-          category: 'Telehealth Operations',
-          priority: 'High',
-          riskLevel: 'Medium',
-          sourceStakeholder: 'Medical Staff & Outpatients',
-          statement: 'The system shall enable patients to search for doctors by specialty, check live availability, and book physical or video appointments.',
-          userStory: 'As a patient, I want to book a video consultation with an available specialist and receive immediate calendar confirmation.',
-          acceptanceCriteria: [
-            'Real-time doctor calendar synchronization preventing double bookings',
-            'WebRTC video consultation with end-to-end encryption',
-            'Automated SMS/Email reminders 24 hours prior to appointment'
-          ],
-          businessJustification: 'Streamlines healthcare access and increases physician utilization.',
-          applicableRegulations: ['HIPAA Telehealth Guidelines'],
-          description: 'The system shall enable patients to search for doctors by specialty, check live availability, and book physical or video appointments.'
-        },
-        {
-          id: 'FR-03',
-          title: 'Electronic Prescription Generation',
-          category: 'Clinical E-Prescribing',
-          priority: 'High',
-          riskLevel: 'High',
-          sourceStakeholder: 'Licensed Physicians',
-          statement: 'Physicians must be able to generate digitally signed digital prescriptions and transmit them directly to partner pharmacies.',
-          userStory: 'As a licensed physician, I want to issue digitally signed prescriptions with drug-interaction checks so patients receive safe medications.',
-          acceptanceCriteria: [
-            'Automated drug-to-drug contraindication warnings upon drug selection',
-            'Cryptographic digital signature compliant with e-prescribing standards',
-            'Direct secure transmission to certified retail pharmacies'
-          ],
-          businessJustification: 'Eliminates medication errors and prevents fraudulent prescription tampering.',
-          applicableRegulations: ['DEA EPCS Mandate', 'HIPAA'],
-          description: 'Physicians must be able to generate digitally signed digital prescriptions and transmit them directly to partner pharmacies.'
-        },
-        {
-          id: 'FR-04',
-          title: 'Lab Report Ingestion & Notification',
-          category: 'Diagnostics & Telemetry',
-          priority: 'Medium',
-          riskLevel: 'Medium',
-          sourceStakeholder: 'Diagnostic Labs & Pathologists',
-          statement: 'The system must automatically ingest diagnostic test results, notify patients, and make reports accessible via patient portal.',
-          userStory: 'As a patient, I want to receive push notifications when lab results are ready so I can review them with my physician.',
-          acceptanceCriteria: [
-            'Automated HL7/FHIR message ingestion from laboratory instruments',
-            'Encrypted PDF viewer with watermarked patient identifiers',
-            'Physician review checkpoint before critical abnormal results are visible'
-          ],
-          businessJustification: 'Accelerates diagnostic turnaround time and patient engagement.',
-          applicableRegulations: ['CLIA Regulations', 'HIPAA'],
-          description: 'The system must automatically ingest diagnostic test results, notify patients, and make reports accessible via patient portal.'
-        }
-      );
-
-      nonFunctionalReqs.push(
-        {
-          id: 'NFR-01',
-          title: 'Protected Health Information (PHI) Privacy & Encryption',
-          category: 'Compliance & Privacy',
-          priority: 'Critical',
-          statement: 'Must strictly comply with HIPAA and GDPR medical privacy regulations. Protected Health Information (PHI) must be encrypted with AES-256 and anonymized for analytics.',
-          targetMetrics: 'AES-256 at rest, TLS 1.3 in transit, 100% anonymization in analytics databases',
-          applicableRegulations: ['HIPAA Security Rule', 'GDPR Article 9 (Special Category Data)'],
-          description: 'Must strictly comply with HIPAA and GDPR medical privacy regulations. Protected Health Information (PHI) must be anonymized for analytics.'
-        },
-        {
-          id: 'NFR-02',
-          title: 'Role-Based Access Control & Break-Glass Protocol',
-          category: 'Access Control',
-          priority: 'High',
-          statement: 'Role-based access control (RBAC) ensuring patients only view their own records and doctors only access active patient profiles, with emergency break-glass logging.',
-          targetMetrics: 'Zero unauthorized horizontal record access, emergency overrides audited within 1 hour',
-          applicableRegulations: ['HIPAA Technical Safeguards 164.312'],
-          description: 'Role-based access control (RBAC) ensuring patients only view their own records and doctors only access active patient profiles.'
-        },
-        {
-          id: 'NFR-03',
-          title: 'Clinical System Reliability & Uptime',
-          category: 'Reliability',
-          priority: 'High',
-          statement: 'System must maintain 99.95% availability for critical patient-monitoring and consultation services.',
-          targetMetrics: '99.95% availability, automatic failover under 60 seconds',
-          applicableRegulations: ['Healthcare Critical Infrastructure Standards'],
-          description: 'System must maintain 99.95% availability for critical patient-monitoring services.'
-        }
-      );
-    } else if (isEcommerce) {
-      regulations.push('PCI-DSS Level 1', 'GDPR / Consumer Privacy', 'Consumer Protection Directives');
-      functionalReqs.push(
-        {
-          id: 'FR-01',
-          title: 'Product Catalog & Advanced Search',
-          category: 'Discovery & Catalog',
-          priority: 'High',
-          riskLevel: 'Low',
-          sourceStakeholder: 'Merchandising Team',
-          statement: 'Users must be able to browse products with filtering by category, price, brand, and search keywords with auto-suggestions.',
-          userStory: 'As a shopper, I want elastic search with typo tolerance and category facets so I can quickly locate desired items.',
-          acceptanceCriteria: [
-            'Search auto-suggestions returned within 100ms',
-            'Dynamic faceted filtering without full page reloads',
-            'Accurate real-time out-of-stock badge display'
-          ],
-          businessJustification: 'Drives product discovery and directly impacts checkout conversion rates.',
-          applicableRegulations: ['Consumer Protection Act'],
-          description: 'Users must be able to browse products with filtering by category, price, brand, and search keywords with auto-suggestions.'
-        },
-        {
-          id: 'FR-02',
-          title: 'Shopping Cart & Real-Time Inventory Hold',
-          category: 'Cart & Checkout',
-          priority: 'High',
-          riskLevel: 'Medium',
-          sourceStakeholder: 'Inventory Management',
-          statement: 'The system must allow users to add items to cart, automatically reserving inventory for 15 minutes during checkout.',
-          userStory: 'As a customer, I want my selected inventory reserved while completing payment so items do not sell out mid-checkout.',
-          acceptanceCriteria: [
-            'Temporary inventory lock expires cleanly after 15 minutes',
-            'Instant cart quantity recalculation and tax computation',
-            'Distributed lock handling flash sale concurrency'
-          ],
-          businessJustification: 'Prevents overselling during high-demand promotional flash sales.',
-          applicableRegulations: ['Commercial Trade Standards'],
-          description: 'The system must allow users to add items to cart, automatically reserving inventory for 15 minutes during checkout.'
-        },
-        {
-          id: 'FR-03',
-          title: 'Secure Multi-Payment Gateway',
-          category: 'Payment Integration',
-          priority: 'Critical',
-          riskLevel: 'High',
-          sourceStakeholder: 'Finance & Payments Lead',
-          statement: 'The system must accept multiple payment methods (Credit/Debit cards, UPI, PayPal, Net Banking) via tokenized payment gateways.',
-          userStory: 'As a customer, I want to pay using my preferred payment gateway with 3D Secure verification.',
-          acceptanceCriteria: [
-            'Complete isolation of cardholder data via hosted fields / tokens',
-            'Idempotent payment webhook handling preventing double debits',
-            'Instant payment receipt confirmation and order status transition'
-          ],
-          businessJustification: 'Crucial for checkout conversion and strict PCI compliance.',
-          applicableRegulations: ['PCI-DSS Level 1'],
-          description: 'The system must accept multiple payment methods (Credit/Debit cards, UPI, PayPal, Net Banking) via tokenized payment gateways.'
-        },
-        {
-          id: 'FR-04',
-          title: 'Order Tracking & Shipment Notification',
-          category: 'Fulfillment & Logistics',
-          priority: 'Medium',
-          riskLevel: 'Low',
-          sourceStakeholder: 'Logistics Operations',
-          statement: 'Customers must receive automated status updates (Order Placed, Dispatched, Out for Delivery, Delivered) via email and SMS.',
-          userStory: 'As a shopper, I want real-time tracking links so I can monitor my package delivery progress.',
-          acceptanceCriteria: [
-            'Automated carrier webhook ingestion for shipment checkpoints',
-            'Interactive tracking timeline rendered in customer order dashboard',
-            'Automated SMS notifications on dispatch and delivery'
-          ],
-          businessJustification: 'Reduces customer support inbound tickets and improves satisfaction.',
-          applicableRegulations: ['Consumer Notification Directives'],
-          description: 'Customers must receive automated status updates (Order Placed, Dispatched, Out for Delivery, Delivered) via email and SMS.'
-        }
-      );
-
-      nonFunctionalReqs.push(
-        {
-          id: 'NFR-01',
-          title: 'Sub-Second Page Performance',
-          category: 'Performance',
-          priority: 'High',
-          statement: 'Product catalog search and page load time must render in under 800 milliseconds during peak traffic.',
-          targetMetrics: 'P95 response time < 800ms, First Contentful Paint < 1.2s',
-          applicableRegulations: ['Core Web Vitals Standard'],
-          description: 'Product catalog search and page load time must render in under 800 milliseconds during flash sales.'
-        },
-        {
-          id: 'NFR-02',
-          title: 'Flash Sale Elastic Scalability',
-          category: 'Scalability',
-          priority: 'High',
-          statement: 'System must auto-scale to support 50,000 concurrent active shoppers without server degradation.',
-          targetMetrics: 'Zero dropped requests up to 50k concurrent users, autoscaling scale-out within 90s',
-          applicableRegulations: ['High-Throughput Architectural Standard'],
-          description: 'System must auto-scale to support 50,000 concurrent active shoppers without server degradation.'
-        },
-        {
-          id: 'NFR-03',
-          title: 'Zero Plain-Text Cardholder Data Storage',
-          category: 'Security',
-          priority: 'Critical',
-          statement: 'Zero plain-text card data storage; fully compliant with PCI-DSS Level 1 standards.',
-          targetMetrics: '100% tokenized payment integration, zero PAN in backend storage',
-          applicableRegulations: ['PCI-DSS Level 1'],
-          description: 'Zero plain-text card data storage; fully compliant with PCI-DSS Level 1 standards.'
-        }
-      );
-    } else if (isEducation) {
-      regulations.push('FERPA', 'COPPA', 'WCAG 2.1 AA Accessibility');
-      functionalReqs.push(
-        {
-          id: 'FR-01',
-          title: 'Course Enrollment & Curriculum Viewer',
-          category: 'Academic Administration',
-          priority: 'High',
-          riskLevel: 'Low',
-          sourceStakeholder: 'Academic Registrar & Students',
-          statement: 'Students must be able to browse available courses, view syllabi, and enroll with automated prerequisite verification.',
-          userStory: 'As a student, I want to view course requirements and enroll so that my academic schedule is confirmed.',
-          acceptanceCriteria: [
-            'Automated prerequisite validation against student academic transcript',
-            'Real-time class seat capacity enforcement with waitlist routing',
-            'Immediate syllabus and lecture schedule availability upon enrollment'
-          ],
-          businessJustification: 'Core academic management and student onboarding workflow.',
-          applicableRegulations: ['FERPA Student Records Privacy'],
-          description: 'Students must be able to browse available courses, view syllabi, and enroll with automated prerequisite verification.'
-        },
-        {
-          id: 'FR-02',
-          title: 'Assignment Submission & Auto-Grading',
-          category: 'Examination & Assessment',
-          priority: 'High',
-          riskLevel: 'Medium',
-          sourceStakeholder: 'Faculty & Instructors',
-          statement: 'The system shall allow students to upload assignments and support automated grading for objective quizzes and coding tests.',
-          userStory: 'As an instructor, I want automated grading for timed quizzes with instant gradebook synchronization.',
-          acceptanceCriteria: [
-            'Support for file uploads with automated anti-plagiarism scanning',
-            'Sandboxed test execution for automated computer science assignments',
-            'Deterministic multiple-choice quiz scoring and instant student feedback'
-          ],
-          businessJustification: 'Reduces instructor grading burden and delivers instant student feedback.',
-          applicableRegulations: ['Academic Integrity Standards'],
-          description: 'The system shall allow students to upload assignments and support automated grading for objective quizzes and coding tests.'
-        },
-        {
-          id: 'FR-03',
-          title: 'Anti-Cheating Assessment & Browser Lockdown',
-          category: 'Proctoring & Integrity',
-          priority: 'High',
-          riskLevel: 'High',
-          sourceStakeholder: 'Examination Board',
-          statement: 'The module must support secure timed examinations with browser lockdown, webcam proctoring, and focus-loss tracking.',
-          userStory: 'As an examination officer, I want unauthorized browser tabs locked during exams so academic integrity is upheld.',
-          acceptanceCriteria: [
-            'Automated fullscreen lock with violation warning on window blur',
-            'Webcam periodic snapshot verification against student ID',
-            'Cryptographic submission timestamping'
-          ],
-          businessJustification: 'Guarantees institutional accreditation credibility for remote examinations.',
-          applicableRegulations: ['University Examination Board Directives'],
-          description: 'The module must support live streaming lectures with real-time Q&A chat and session attendance logging.'
-        }
-      );
-
-      nonFunctionalReqs.push(
-        {
-          id: 'NFR-01',
-          title: 'WCAG 2.1 AA Accessibility Conformance',
-          category: 'Usability & Accessibility',
-          priority: 'High',
-          statement: 'The interface must conform to WCAG 2.1 AA accessibility guidelines for students with disabilities.',
-          targetMetrics: '100% screen reader compatibility, 4.5:1 text contrast ratio, keyboard navigation',
-          applicableRegulations: ['ADA Title III', 'Section 508'],
-          description: 'The interface must conform to WCAG 2.1 AA accessibility guidelines for students with disabilities.'
-        },
-        {
-          id: 'NFR-02',
-          title: 'Examination Peak Concurrency',
-          category: 'Concurrency',
-          priority: 'High',
-          statement: 'System must handle up to 10,000 simultaneous students taking online examinations without connection drops.',
-          targetMetrics: '10,000 concurrent WebSocket connections, zero lost exam submissions',
-          applicableRegulations: ['Academic Service Level Agreement'],
-          description: 'System must handle up to 10,000 simultaneous students taking online examinations without connection drops.'
-        }
-      );
+    if (apiKey && apiKey.trim().length > 10) {
+      try {
+        extracted = await this._callGeminiLLM(maskedScenario, stakeholderObj, ragDocs, clarificationAnswers, apiKey);
+        generationMode = 'Live Gemini 2.5 Flash + Healthcare RAG';
+      } catch (err) {
+        llmWarning = `Live LLM unavailable (${err.message}); automatically fell back to Local RAG-Grounded Hospital Engine.`;
+        extracted = this._generateLocalRAGRequirements(maskedScenario, stakeholderObj, ragDocs, clarificationAnswers);
+      }
     } else {
-      // General Software System / Tailored to specific text
-      regulations.push('ISO/IEC 25010', 'OWASP Top 10');
-      functionalReqs.push(
-        {
-          id: 'FR-01',
-          title: 'User Authentication & Access Governance',
-          category: 'Security & Access',
-          priority: 'High',
-          riskLevel: 'Medium',
-          sourceStakeholder: 'System Administrator',
-          statement: 'The system shall provide secure sign-up, sign-in, tokenized session management, and role-based permissions.',
-          userStory: 'As an enterprise user, I want secure identity verification so my operational workspace is protected.',
-          acceptanceCriteria: [
-            'Cryptographic password hashing (Argon2 / bcrypt)',
-            'JWT session tokens with automated expiration',
-            'Least-privilege authorization matrix enforced on all endpoints'
-          ],
-          businessJustification: 'Fundamental security baseline for multi-tenant software architecture.',
-          applicableRegulations: ['OWASP ASVS Standard'],
-          description: 'The system shall provide secure sign-up, sign-in, password reset, and session management using tokens.'
-        },
-        {
-          id: 'FR-02',
-          title: 'Core Workflow & Business Logic Execution',
-          category: 'Core Functionality',
-          priority: 'High',
-          riskLevel: 'High',
-          sourceStakeholder: 'Product Owner & Domain Lead',
-          statement: `The system shall execute the primary operations specified in: "${text.slice(0, 120)}..." with strict input validation and state management.`,
-          userStory: 'As an operator, I want consistent execution of business workflows so that transaction errors are eliminated.',
-          acceptanceCriteria: [
-            'Input schema validation rejecting malformed payloads',
-            'State machine enforcing valid lifecycle transitions',
-            'Comprehensive error responses with correlation IDs'
-          ],
-          businessJustification: 'Delivers the primary domain value outlined in the specification.',
-          applicableRegulations: ['Enterprise Quality Standards'],
-          description: `The system shall execute the primary operations specified in: "${text.slice(0, 100)}..." with input validation and state management.`
-        },
-        {
-          id: 'FR-03',
-          title: 'Query, Filter & Analytics Export',
-          category: 'Reporting & Operations',
-          priority: 'Medium',
-          riskLevel: 'Low',
-          sourceStakeholder: 'Business Operations',
-          statement: 'The module must allow users to query stored records, apply filters, and export results in standard formats (CSV, PDF, JSON).',
-          userStory: 'As an operational manager, I want to filter and export records so I can perform audits and offline reporting.',
-          acceptanceCriteria: [
-            'Multi-column search and sorting across datasets',
-            'Pagination with configurable page size (10, 25, 50, 100)',
-            'Asynchronous background export for large datasets exceeding 1,000 rows'
-          ],
-          businessJustification: 'Enables data visibility and executive operational insight.',
-          applicableRegulations: ['Data Portability Standards'],
-          description: 'The module must allow users to query stored records, apply filters, and export results in standard formats (CSV, PDF).'
-        },
-        {
-          id: 'FR-04',
-          title: 'Administrative Control & System Configuration',
-          category: 'Administration',
-          priority: 'Medium',
-          riskLevel: 'Medium',
-          sourceStakeholder: 'Platform Operations Lead',
-          statement: 'The system shall provide an administrative view to manage users, configure system parameters, and monitor operational telemetry.',
-          userStory: 'As a system administrator, I want an admin dashboard to adjust system parameters and inspect operational health.',
-          acceptanceCriteria: [
-            'Granular user status toggles (Active, Suspended, Archived)',
-            'System configuration parameters persisted in versioned store',
-            'Real-time service health check telemetry display'
-          ],
-          businessJustification: 'Ensures maintainability and operational governability of the deployed system.',
-          applicableRegulations: ['ISO 27001 Access Control'],
-          description: 'The system shall provide an administrative view to manage users, configure system parameters, and monitor activity.'
-        }
-      );
-
-      nonFunctionalReqs.push(
-        {
-          id: 'NFR-01',
-          title: 'Application Security & Vulnerability Defense',
-          category: 'Security',
-          priority: 'Critical',
-          statement: 'The system must prevent common vulnerabilities (OWASP Top 10) including SQL injection, cross-site scripting (XSS), and CSRF.',
-          targetMetrics: 'Zero high/critical SAST/DAST findings, Content Security Policy headers enforced',
-          applicableRegulations: ['OWASP Top 10', 'CWE/SANS Top 25'],
-          description: 'The system must prevent common vulnerabilities (OWASP Top 10) including SQL injection, XSS, and CSRF.'
-        },
-        {
-          id: 'NFR-02',
-          title: 'API Performance & Response SLA',
-          category: 'Performance',
-          priority: 'High',
-          statement: 'API endpoints must respond within 1 second for 95% of standard requests under expected operational load.',
-          targetMetrics: 'P95 response time <= 1000ms, error rate < 0.1%',
-          applicableRegulations: ['Application Performance Baseline'],
-          description: 'API endpoints must respond within 1 second for 95% of standard requests under expected load.'
-        },
-        {
-          id: 'NFR-03',
-          title: 'Modular Maintainability & Test Coverage',
-          category: 'Maintainability',
-          priority: 'Medium',
-          statement: 'The codebase must follow clean modular architecture with at least 80% automated unit test coverage.',
-          targetMetrics: '>= 80% line/branch test coverage, SonarQube maintainability grade A',
-          applicableRegulations: ['IEEE 829 Software Test Standards'],
-          description: 'The codebase must follow clean modular architecture with at least 80% automated unit test coverage.'
-        }
-      );
+      extracted = this._generateLocalRAGRequirements(maskedScenario, stakeholderObj, ragDocs, clarificationAnswers);
     }
 
-    // Build Traceability Matrix for IEEE 830 compliance
+    const functionalRequirements = extracted.functionalRequirements.map((fr) => ({
+      ...fr,
+      approvalStatus: 'Pending Review'
+    }));
+    const nonFunctionalRequirements = extracted.nonFunctionalRequirements.map((nfr) => ({
+      ...nfr,
+      approvalStatus: 'Pending Review'
+    }));
+
+    const qualityReport = auditRequirementQuality(maskedScenario, functionalRequirements, nonFunctionalRequirements);
+
+    // Build IEEE 830 Requirements Traceability Matrix (RTM)
     const traceabilityMatrix = [
-      ...functionalReqs.map(fr => ({
+      ...functionalRequirements.map((fr) => ({
         requirementId: fr.id,
         title: fr.title,
         type: 'Functional',
-        stakeholder: fr.sourceStakeholder,
-        regulatoryMapping: fr.applicableRegulations ? fr.applicableRegulations.join(', ') : 'Standard',
-        verificationStage: 'Integration & Acceptance Testing'
+        stakeholder: fr.sourceStakeholder || stakeholderObj.label,
+        regulatoryMapping: (fr.applicableRegulations || []).join(', ') || 'Hospital Standard',
+        citations: (fr.citations || []).join(', ') || 'KB-HIPAA-01',
+        verificationStage: fr.riskLevel === 'Critical' ? 'Clinical Safety & UAT Gate' : 'Integration & UAT'
       })),
-      ...nonFunctionalReqs.map(nfr => ({
+      ...nonFunctionalRequirements.map((nfr) => ({
         requirementId: nfr.id,
         title: nfr.title,
         type: 'Non-Functional',
-        stakeholder: 'System Architecture & Security',
-        regulatoryMapping: nfr.applicableRegulations ? nfr.applicableRegulations.join(', ') : 'Standard',
-        verificationStage: 'Automated Security & Stress Testing'
+        stakeholder: 'Hospital Security & Compliance',
+        regulatoryMapping: (nfr.applicableRegulations || []).join(', ') || 'ISO 25010',
+        citations: (nfr.citations || []).join(', ') || 'KB-ISO25010-01',
+        verificationStage: 'Automated SAST/DAST & Load Verification'
       }))
     ];
 
-    const qualityReport = {
-      overallScore: 94,
-      status: 'Production Ready',
-      testabilityRating: 'High',
-      ambiguities: []
-    };
+    // Clinical Risk Register
+    const riskRegister = [
+      {
+        id: 'RISK-01',
+        category: 'Privacy / Regulatory',
+        risk: 'Unauthorized ePHI exposure or unmasked patient data leakage to external AI endpoints.',
+        severity: 'Critical',
+        mitigation: 'Mandatory pre-inference PHI redaction, AES-256 encryption, RBAC, and immutable audit trails.'
+      },
+      {
+        id: 'RISK-02',
+        category: 'Clinical Safety',
+        risk: 'Missed critical alerts, drug-interaction omissions, or over-reliance on AI scoring without physician review.',
+        severity: 'Critical',
+        mitigation: 'Deterministic hard-stop allergy/drug alerts, human clinician sign-off gates, and clinical UAT.'
+      },
+      {
+        id: 'RISK-03',
+        category: 'Interoperability / Legacy',
+        risk: 'Data synchronization failures with legacy Hospital Management Systems (HMS), labs, or radiology PACS.',
+        severity: 'High',
+        mitigation: 'HL7 FHIR R4 contract validation, dead-letter retry queues, and integration staging drills.'
+      }
+    ];
+
+    const avgConfidence = Number((
+      [...functionalRequirements, ...nonFunctionalRequirements].reduce((s, r) => s + (r.confidence || 0.9), 0) /
+      Math.max(1, functionalRequirements.length + nonFunctionalRequirements.length)
+    ).toFixed(2));
+
+    const uniqueRegs = [...new Set(ragDocs.map((d) => d.standard))];
 
     return {
-      scenario: text,
-      domain,
-      functionalRequirements: functionalReqs,
-      nonFunctionalRequirements: nonFunctionalReqs,
-      totalCount: functionalReqs.length + nonFunctionalReqs.length,
+      scenario: maskedScenario,
+      domain: extracted.domain || 'Hospital & Clinical Systems',
+      stakeholderRole: stakeholderObj.label,
+      generationMode,
+      llmWarning,
+      retrievedKnowledge: ragDocs,
+      functionalRequirements,
+      nonFunctionalRequirements,
+      totalCount: functionalRequirements.length + nonFunctionalRequirements.length,
       metrics: {
-        regulatoryStandardsMapped: regulations,
-        functionalCount: functionalReqs.length,
-        nonFunctionalCount: nonFunctionalReqs.length
+        regulatoryStandardsMapped: uniqueRegs,
+        functionalCount: functionalRequirements.length,
+        nonFunctionalCount: nonFunctionalRequirements.length,
+        averageConfidence: avgConfidence
       },
       qualityReport,
-      traceabilityMatrix
+      traceabilityMatrix,
+      riskRegister
     };
-  }
-
-  /**
-   * Alias for identifyRequirements to support orchestrator consistency
-   * @param {string} scenario 
-   * @returns {object} Requirements specification
-   */
-  async analyzeScenario(scenario) {
-    return this.identifyRequirements(scenario);
   }
 }

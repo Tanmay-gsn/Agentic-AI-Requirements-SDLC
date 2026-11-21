@@ -1,539 +1,962 @@
-import React, { useState } from 'react';
-import { 
-  ArrowRight, 
-  Sparkles, 
-  Copy, 
-  Check, 
-  Layers,
-  AlertTriangle,
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Sparkles,
+  ArrowRight,
   Download,
+  Copy,
+  Check,
+  AlertTriangle,
+  Shield,
   Sliders,
   ChevronDown,
   ChevronUp,
-  Award
+  Award,
+  Upload,
+  Key,
+  Activity,
+  MessageSquare,
+  FileText,
+  RefreshCw,
+  CheckCircle,
+  Flag
 } from 'lucide-react';
-import { RequirementAgent } from './agents/requirementAgent.js';
+import { AgentOrchestrator } from './agents/orchestrator.js';
 import { SdlcAgent } from './agents/sdlcAgent.js';
-import { PRESET_SCENARIOS } from './agents/presets.js';
+import { HOSPITAL_PRESETS, HOSPITAL_SDLC_EXAMPLES } from './agents/presets.js';
+import { STAKEHOLDER_ROLES } from './agents/knowledgeBase.js';
 import { generateSRSMarkdown } from './utils/srsExporter.js';
 
-const requirementAgent = new RequirementAgent();
-const sdlcAgent = new SdlcAgent();
+const orchestrator = new AgentOrchestrator();
+const liveSdlcAgent = new SdlcAgent();
 
-// Specification deterministic examples from prompt
-const SPEC_EXAMPLES = [
-  {
-    label: 'Waterfall: Stable & Approvals',
-    title: 'Stable requirements + extensive approvals → Waterfall',
-    scenario: 'A legacy enterprise accounting ledger system with stable requirements and extensive approvals across executive and compliance committees.'
-  },
-  {
-    label: 'V-Model: Strict Verification',
-    title: 'Strict verification/validation → V-Model',
-    scenario: 'A medical ventilator firmware control system requiring strict verification/validation, formal traceability, and safety-critical audit gates.'
-  },
-  {
-    label: 'Spiral: High Uncertainty',
-    title: 'High uncertainty/technical risk → Spiral',
-    scenario: 'An R&D research project exploring experimental quantum cryptography algorithms with high uncertainty and technical risk across novel hardware.'
-  },
-  {
-    label: 'Agile: Changing Reqs',
-    title: 'Frequently changing requirements → Agile',
-    scenario: 'A consumer mobile social feed app with frequently changing requirements, weekly user telemetry pivots, and fluid feature backlogs.'
-  },
-  {
-    label: 'DevSecOps: Secure Deploy',
-    title: 'Continuous secure deployment → DevSecOps',
-    scenario: 'A cloud-native microservices platform requiring continuous secure deployment, automated SAST/DAST in CI/CD, and zero-downtime canary rollouts.'
-  },
-  {
-    label: 'Hybrid: Regulated & Evolving',
-    title: 'High regulation + evolving requirements → Agile–V-Model/DevSecOps hybrid',
-    scenario: 'A digital banking loan module subject to high regulation and evolving requirements from shifting central bank digital lending directives.'
-  }
+const FACTOR_LABELS = [
+  { key: 'requirementStability', label: 'Requirement Stability' },
+  { key: 'changeFrequency', label: 'Change Frequency' },
+  { key: 'regulatoryCriticality', label: 'Regulatory Criticality' },
+  { key: 'securityRisk', label: 'Security & ePHI Risk' },
+  { key: 'technicalUncertainty', label: 'Technical Uncertainty' },
+  { key: 'failureConsequence', label: 'Clinical Failure Impact' },
+  { key: 'continuousDeploymentNeed', label: 'Continuous Deployment' },
+  { key: 'formalVerificationNeed', label: 'Formal Verification (V&V)' }
 ];
 
-const initialPreset = PRESET_SCENARIOS[1];
-const initialReqs = requirementAgent.identifyRequirements(initialPreset.scenarioDescription);
-const initialSdlc = sdlcAgent.evaluateSDLC(initialPreset.scenarioDescription, initialReqs, initialPreset.defaultFactors);
-
 export default function App() {
-  const [scenarioInput, setScenarioInput] = useState(initialPreset.scenarioDescription);
-  const [selectedScenarioTitle, setSelectedScenarioTitle] = useState(initialPreset.title);
-  const [requirementsData, setRequirementsData] = useState(initialReqs);
-  const [sdlcData, setSdlcData] = useState(initialSdlc);
-  const [errorMessage, setErrorMessage] = useState(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [expandedModelId, setExpandedModelId] = useState(null);
-  const [activeTab, setActiveTab] = useState('spec'); // 'spec' | 'enterprise'
+  const initialPreset = HOSPITAL_PRESETS[0];
 
-  const runAgents = (inputScenario, title = 'Custom Software Scenario', customFactors = {}) => {
+  const [scenarioInput, setScenarioInput] = useState(initialPreset.scenarioDescription);
+  const [scenarioTitle, setScenarioTitle] = useState(initialPreset.title);
+  const [stakeholderRole, setStakeholderRole] = useState(initialPreset.defaultRole || 'cmo');
+  const [apiKey, setApiKey] = useState('');
+  const [showApiConfig, setShowApiConfig] = useState(false);
+  const [uploadedDocName, setUploadedDocName] = useState('');
+
+  const [presetTab, setPresetTab] = useState('hospital'); // 'hospital' | 'rules'
+  const [agent1Tab, setAgent1Tab] = useState('reqs'); // 'reqs' | 'quality' | 'rtm'
+  const [expandedModelId, setExpandedModelId] = useState(null);
+
+  const [pipelineResult, setPipelineResult] = useState(null);
+  const [clarificationAnswers, setClarificationAnswers] = useState({});
+  const [approvalMap, setApprovalMap] = useState({});
+  const [reviewerName, setReviewerName] = useState('Dr. A. Sharma');
+  const [sdlcSignOff, setSdlcSignOff] = useState(null);
+
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const fileInputRef = useRef(null);
+
+  const executePipeline = async ({
+    text = scenarioInput,
+    title = scenarioTitle,
+    role = stakeholderRole,
+    answers = clarificationAnswers,
+    factors = {},
+    docName = uploadedDocName
+  } = {}) => {
     setIsProcessing(true);
     setErrorMessage(null);
 
-    setTimeout(() => {
-      try {
-        // Task (i): Agent 1 identifies requirements (validates and extracts)
-        const reqs = requirementAgent.identifyRequirements(inputScenario);
-
-        // Task (ii): Agent 2 MCDA evaluation
-        const sdlc = sdlcAgent.evaluateSDLC(inputScenario, reqs, customFactors);
-
-        setRequirementsData(reqs);
-        setSdlcData(sdlc);
-        setSelectedScenarioTitle(title);
-      } catch (err) {
-        setErrorMessage(err.message || 'The provided scenario could not be processed.');
-        setRequirementsData(null);
-        setSdlcData(null);
-      } finally {
-        setIsProcessing(false);
-      }
-    }, 150);
+    try {
+      const result = await orchestrator.runPipeline(text, {
+        stakeholderRole: role,
+        clarificationAnswers: answers,
+        customFactors: factors,
+        apiKey,
+        uploadedDocName: docName
+      });
+      setPipelineResult(result);
+      setScenarioTitle(title);
+      setApprovalMap({});
+      setSdlcSignOff(null);
+    } catch (err) {
+      setErrorMessage(err.message || 'Unable to process this hospital scenario.');
+      setPipelineResult((prev) => (err.logs ? { ...(prev || {}), logs: err.logs, failed: true } : null));
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleSelectPreset = (preset) => {
+  // Run initial Hospital EHR case study on first load
+  useEffect(() => {
+    executePipeline({
+      text: initialPreset.scenarioDescription,
+      title: initialPreset.title,
+      role: initialPreset.defaultRole,
+      factors: initialPreset.defaultFactors
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSelectHospitalPreset = (preset) => {
     setScenarioInput(preset.scenarioDescription);
-    runAgents(preset.scenarioDescription, preset.title, preset.defaultFactors || {});
+    setStakeholderRole(preset.defaultRole || 'cmo');
+    setClarificationAnswers({});
+    setUploadedDocName('');
+    executePipeline({
+      text: preset.scenarioDescription,
+      title: preset.title,
+      role: preset.defaultRole || 'cmo',
+      answers: {},
+      factors: preset.defaultFactors
+    });
   };
 
-  const handleSelectSpecExample = (spec) => {
+  const handleSelectRuleExample = (spec) => {
     setScenarioInput(spec.scenario);
-    runAgents(spec.scenario, spec.title);
+    setClarificationAnswers({});
+    setUploadedDocName('');
+    executePipeline({
+      text: spec.scenario,
+      title: spec.title,
+      role: stakeholderRole,
+      answers: {},
+      factors: {}
+    });
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = String(ev.target?.result || '').trim();
+      if (content) {
+        const merged = `${scenarioInput.trim()}\n\n[Uploaded Document: ${file.name}]\n${content.slice(0, 3000)}`;
+        setScenarioInput(merged);
+        setUploadedDocName(file.name);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleSliderChange = (factorKey, newValue) => {
+    if (!pipelineResult?.requirementResult || !pipelineResult?.sdlcResult) return;
+    const updatedFactors = {
+      ...pipelineResult.sdlcResult.evaluatedFactors,
+      [factorKey]: Number(newValue),
+      _fromSlider: true
+    };
+    const updatedSdlc = liveSdlcAgent.evaluateSDLC(
+      pipelineResult.requirementResult,
+      updatedFactors,
+      clarificationAnswers
+    );
+    setPipelineResult((prev) => ({
+      ...prev,
+      sdlcResult: updatedSdlc
+    }));
+    setSdlcSignOff(null);
+  };
+
+  const handleRequirementDecision = (reqId, status) => {
+    setApprovalMap((prev) => ({ ...prev, [reqId]: status }));
+    setPipelineResult((prev) => {
+      if (!prev) return prev;
+      const newLog = {
+        id: `hitl-${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        agent: 'Human-in-the-Loop Gate',
+        phase: 'Requirement Review',
+        message: `${reviewerName || 'Reviewer'} marked ${reqId} as "${status}".`,
+        status: status === 'Flagged for Revision' ? 'warn' : 'ok'
+      };
+      return { ...prev, logs: [...(prev.logs || []), newLog] };
+    });
+  };
+
+  const handleSdlcSignOff = (status) => {
+    const roleLabel = STAKEHOLDER_ROLES.find((r) => r.id === stakeholderRole)?.label || stakeholderRole;
+    const record = {
+      status,
+      reviewer: reviewerName.trim() || 'Authorized Hospital Reviewer',
+      role: roleLabel,
+      timestamp: new Date().toLocaleTimeString()
+    };
+    setSdlcSignOff(record);
+    setPipelineResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        logs: [
+          ...(prev.logs || []),
+          {
+            id: `sdlc-hitl-${Date.now()}`,
+            timestamp: record.timestamp,
+            agent: 'Human-in-the-Loop Gate',
+            phase: 'SDLC Sign-Off',
+            message: `${record.reviewer} (${record.role}) marked SDLC "${prev.sdlcResult.recommendedModel}" as ${status}.`,
+            status: status === 'Approved' ? 'ok' : 'warn'
+          }
+        ]
+      };
+    });
+  };
+
+  const handleExportSRS = () => {
+    if (!pipelineResult?.requirementResult || !pipelineResult?.sdlcResult) return;
+    const md = generateSRSMarkdown({
+      title: scenarioTitle,
+      scenarioText: pipelineResult.phiResult?.maskedText || scenarioInput,
+      phiResult: pipelineResult.phiResult,
+      requirementResult: pipelineResult.requirementResult,
+      sdlcResult: pipelineResult.sdlcResult,
+      approvalMap,
+      sdlcSignOff,
+      auditLogs: pipelineResult.logs || []
+    });
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Hospital_SRS_SDLC_${scenarioTitle.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)}.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleCopySummary = () => {
-    if (!requirementsData || !sdlcData) return;
-
-    const summaryText = `=== AGENT 1: SOFTWARE REQUIREMENTS SPECIFICATION ===
-Scenario: ${scenarioInput}
-Domain: ${requirementsData.domain}
-
-Functional Requirements (${requirementsData.functionalRequirements.length}):
-${requirementsData.functionalRequirements.map(f => `[${f.id}] ${f.title} (${f.priority} Priority)\n- Statement: ${f.statement || f.description}`).join('\n\n')}
-
-Non-Functional Requirements (${requirementsData.nonFunctionalRequirements.length}):
-${requirementsData.nonFunctionalRequirements.map(n => `[${n.id}] [${n.category}] (${n.priority})\n- ${n.statement || n.description}`).join('\n\n')}
-
-=== AGENT 2: MULTI-CRITERIA DECISION ANALYSIS (MCDA) SDLC RANKING ===
-Primary Recommendation: ${sdlcData.recommendedModel} (${sdlcData.suitabilityScore} Match)
-Justification: ${sdlcData.justification}
-
-Complete Ranked Models:
-${sdlcData.rankedRecommendations.map(r => `${r.rank}. ${r.name} — ${r.suitabilityScore} (${r.matchLevel})\n   Rationale: ${r.rationale}`).join('\n\n')}
-
-Evaluated Decision Factors:
-- Requirement Stability: ${sdlcData.evaluatedFactors.requirementStability}/100
-- Change Frequency: ${sdlcData.evaluatedFactors.changeFrequency}/100
-- Regulatory Criticality: ${sdlcData.evaluatedFactors.regulatoryCriticality}/100
-- Security Risk: ${sdlcData.evaluatedFactors.securityRisk}/100
-- Technical Uncertainty: ${sdlcData.evaluatedFactors.technicalUncertainty}/100
-- Failure Consequence: ${sdlcData.evaluatedFactors.failureConsequence}/100
-- Continuous Deployment Need: ${sdlcData.evaluatedFactors.continuousDeploymentNeed}/100
-- Formal Verification Need: ${sdlcData.evaluatedFactors.formalVerificationNeed}/100
-`;
-
-    navigator.clipboard.writeText(summaryText);
+    if (!pipelineResult?.requirementResult || !pipelineResult?.sdlcResult) return;
+    const md = generateSRSMarkdown({
+      title: scenarioTitle,
+      scenarioText: pipelineResult.phiResult?.maskedText || scenarioInput,
+      phiResult: pipelineResult.phiResult,
+      requirementResult: pipelineResult.requirementResult,
+      sdlcResult: pipelineResult.sdlcResult,
+      approvalMap,
+      sdlcSignOff,
+      auditLogs: pipelineResult.logs || []
+    });
+    navigator.clipboard.writeText(md);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleExportSRS = () => {
-    if (!requirementsData || !sdlcData) return;
-    const srsMarkdown = generateSRSMarkdown(selectedScenarioTitle, scenarioInput, requirementsData, sdlcData);
-    const blob = new Blob([srsMarkdown], { type: 'text/markdown;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `SRS_SDLC_${selectedScenarioTitle.replace(/[^a-zA-Z0-9]/g, '_')}.md`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const reqData = pipelineResult?.requirementResult;
+  const sdlcData = pipelineResult?.sdlcResult;
+  const clarifications = pipelineResult?.clarifications || [];
+  const phiResult = pipelineResult?.phiResult;
+  const logs = pipelineResult?.logs || [];
+
+  const approvedCount = Object.values(approvalMap).filter((v) => v === 'Approved').length;
+  const totalReqs = (reqData?.functionalRequirements?.length || 0) + (reqData?.nonFunctionalRequirements?.length || 0);
 
   return (
     <div className="app-wrapper">
       {/* HEADER */}
       <header className="app-header">
         <div className="header-badge">
-          <Sparkles size={14} /> MCDA Agentic-AI Dual-Agent Architecture
+          <Sparkles size={14} /> MedSpec AI • Hospital Multi-Agent RE &amp; SDLC Platform
         </div>
-        <h1>SDLC Selection Engine & Requirements Synthesizer</h1>
+        <h1>Hospital Requirements Engineering &amp; SDLC Architect</h1>
         <p>
-          Collaborative multi-agent intelligence performing rigorous: <strong>(i) Requirements Engineering</strong> and <strong>(ii) Multi-Criteria Decision Analysis (MCDA) SDLC Ranking</strong>.
+          Agentic AI platform for <strong>Hospital &amp; Clinical Systems</strong> combining PHI Privacy Guardrails, Healthcare Compliance RAG (HIPAA / NABH / ABDM / HL7 FHIR), Adaptive Clarification, Hybrid MCDA SDLC Selection, and Human-in-the-Loop Governance.
         </p>
       </header>
 
-      {/* INPUT CARD */}
-      <section className="input-card">
-        <div className="input-label-row">
-          <label className="input-title" htmlFor="scenario-textarea">
-            <Layers size={18} /> Specify Software Scenario, Module, or Requirements:
-          </label>
+      {/* STAKEHOLDER ROLE & OPTIONAL LIVE GEMINI API CONFIG */}
+      <section className="config-strip">
+        <div className="config-group">
+          <span className="config-label">
+            <Shield size={14} /> Stakeholder Role:
+          </span>
+          <select
+            className="role-select"
+            value={stakeholderRole}
+            onChange={(e) => setStakeholderRole(e.target.value)}
+          >
+            {STAKEHOLDER_ROLES.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Preset Selector Tabs */}
-        <div className="preset-tabs-header">
-          <button 
-            className={`preset-tab-btn ${activeTab === 'spec' ? 'active' : ''}`}
-            onClick={() => setActiveTab('spec')}
+        <div className="config-group">
+          <span className={`mode-pill ${apiKey.trim().length > 10 ? 'live' : ''}`}>
+            {apiKey.trim().length > 10 ? 'Live Gemini LLM + RAG Ready' : 'Local Healthcare RAG Engine'}
+          </span>
+          <button
+            type="button"
+            className="sample-pill-btn"
+            onClick={() => setShowApiConfig((v) => !v)}
           >
-            Specification Deterministic Rules (6)
+            <Key size={13} /> {showApiConfig ? 'Hide LLM Key' : 'Optional Gemini API Key'}
           </button>
-          <button 
-            className={`preset-tab-btn ${activeTab === 'enterprise' ? 'active' : ''}`}
-            onClick={() => setActiveTab('enterprise')}
-          >
-            Enterprise Production Presets (5)
-          </button>
-        </div>
-
-        {/* Quick Scenario Pills */}
-        <div className="sample-pills">
-          {activeTab === 'spec' ? (
-            SPEC_EXAMPLES.map((spec, idx) => (
-              <button
-                key={idx}
-                id={`spec-pill-${idx}`}
-                className="sample-pill-btn spec-rule-pill"
-                onClick={() => handleSelectSpecExample(spec)}
-                title={spec.title}
-              >
-                {spec.label}
-              </button>
-            ))
-          ) : (
-            PRESET_SCENARIOS.map((preset, idx) => (
-              <button
-                key={idx}
-                id={`preset-pill-${idx}`}
-                className="sample-pill-btn"
-                onClick={() => handleSelectPreset(preset)}
-                title={preset.category}
-              >
-                {preset.title.split('&')[0].trim()}
-              </button>
-            ))
+          {showApiConfig && (
+            <input
+              type="password"
+              className="api-input"
+              placeholder="Paste Gemini API Key (optional)..."
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
           )}
+        </div>
+      </section>
+
+      {/* INPUT & DOCUMENT INGESTION CARD */}
+      <section className="input-card">
+        <div className="preset-tabs-header">
+          <div className="tab-group">
+            <button
+              type="button"
+              className={`preset-tab-btn ${presetTab === 'hospital' ? 'active' : ''}`}
+              onClick={() => setPresetTab('hospital')}
+            >
+              Hospital Case Studies (5)
+            </button>
+            <button
+              type="button"
+              className={`preset-tab-btn ${presetTab === 'rules' ? 'active' : ''}`}
+              onClick={() => setPresetTab('rules')}
+            >
+              Hospital SDLC Rule Profiles (6)
+            </button>
+          </div>
+
+          <div className="config-group">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md,.csv,.json"
+              style={{ display: 'none' }}
+              onChange={handleFileUpload}
+            />
+            <button
+              type="button"
+              className="sample-pill-btn"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload size={13} /> {uploadedDocName ? `Attached: ${uploadedDocName}` : 'Upload Transcript / Policy (.txt, .md)'}
+            </button>
+          </div>
+        </div>
+
+        <div className="sample-pills">
+          {presetTab === 'hospital'
+            ? HOSPITAL_PRESETS.map((preset) => (
+                <button
+                  type="button"
+                  key={preset.id}
+                  className="sample-pill-btn"
+                  onClick={() => handleSelectHospitalPreset(preset)}
+                  title={preset.category}
+                >
+                  {preset.title.split('&')[0].trim()}
+                </button>
+              ))
+            : HOSPITAL_SDLC_EXAMPLES.map((spec, idx) => (
+                <button
+                  type="button"
+                  key={idx}
+                  className="sample-pill-btn spec-rule-pill"
+                  onClick={() => handleSelectRuleExample(spec)}
+                  title={spec.title}
+                >
+                  {spec.label}
+                </button>
+              ))}
         </div>
 
         <textarea
-          id="scenario-textarea"
           className="scenario-textarea"
-          rows={3}
           value={scenarioInput}
           onChange={(e) => setScenarioInput(e.target.value)}
-          placeholder="Describe your software scenario, module, or functionality here (or test with rejection cases like 'i fuck myself')..."
+          placeholder="Describe your hospital software module, clinical workflow, or paste stakeholder notes (Tip: include a sample MRN like MRN-44921 or email to test automatic PHI masking)..."
         />
 
         <div className="action-bar">
-          <span style={{ fontSize: '0.85rem', color: '#9ca3af' }}>
-            {scenarioInput.trim().length} characters
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            {scenarioInput.trim().length} characters • PHI/PII automatically masked before agent inference
           </span>
 
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-            {requirementsData && sdlcData && (
+          <div className="config-group">
+            {reqData && sdlcData && (
               <>
-                <button
-                  id="export-srs-btn"
-                  className="sample-pill-btn"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.65rem 1rem' }}
-                  onClick={handleExportSRS}
-                >
-                  <Download size={16} /> Export SRS (IEEE 830)
+                <button type="button" className="sample-pill-btn" onClick={handleExportSRS}>
+                  <Download size={14} /> Export IEEE 830 SRS (.md)
                 </button>
-
-                <button
-                  id="copy-summary-btn"
-                  className="sample-pill-btn"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.65rem 1rem' }}
-                  onClick={handleCopySummary}
-                >
-                  {copied ? <Check size={16} color="#10b981" /> : <Copy size={16} />}
-                  {copied ? 'Copied' : 'Copy Summary'}
+                <button type="button" className="sample-pill-btn" onClick={handleCopySummary}>
+                  {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                  {copied ? 'Copied' : 'Copy SRS'}
                 </button>
               </>
             )}
 
             <button
-              id="run-agents-btn"
+              type="button"
               className="submit-btn"
-              onClick={() => runAgents(scenarioInput, 'Custom Scenario')}
               disabled={isProcessing || !scenarioInput.trim()}
+              onClick={() => executePipeline({ text: scenarioInput, title: 'Custom Hospital Scenario' })}
             >
-              {isProcessing ? 'Evaluating with MCDA...' : 'Run Dual Agents'} <ArrowRight size={16} />
+              {isProcessing ? 'Running Multi-Agent Pipeline...' : 'Run Hospital AI Agents'} <ArrowRight size={15} />
             </button>
           </div>
         </div>
       </section>
 
-      {/* ERROR / REJECTION BANNER */}
-      {errorMessage && (
-        <section className="rejection-banner" id="rejection-banner">
-          <div className="rejection-icon">
-            <AlertTriangle size={24} />
+      {/* PHI REDACTION NOTICE */}
+      {phiResult && phiResult.totalRedacted > 0 && (
+        <div className="info-banner phi">
+          <Shield size={20} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <strong>Privacy Guardrail Active:</strong> Redacted{' '}
+            <strong>{phiResult.totalRedacted} sensitive PHI/PII item(s)</strong> (
+            {phiResult.redactions.map((r) => `${r.count} ${r.type}`).join(', ')}) before running requirements analysis.
           </div>
-          <div className="rejection-content">
-            <h3 className="rejection-title">Specification Rejected (No Agile Default)</h3>
-            <p className="rejection-desc">{errorMessage}</p>
-            <p className="rejection-hint">
-              <strong>Requirement:</strong> Completely invalid or non-software inputs are rejected deterministically by the validation engine instead of falling back to Agile. Please input a descriptive software module or select one of the presets above.
-            </p>
+        </div>
+      )}
+
+      {/* VALIDATION / SECURITY ERROR BANNER */}
+      {errorMessage && (
+        <div className="info-banner error">
+          <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <strong>Guardrail Rejection:</strong> {errorMessage}
+          </div>
+        </div>
+      )}
+
+      {/* ADAPTIVE CLARIFICATION INTERVIEW PANEL */}
+      {reqData && clarifications.length > 0 && (
+        <section className="clarif-card">
+          <div className="clarif-header">
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontWeight: 800, fontSize: '0.96rem' }}>
+                <MessageSquare size={16} color="#a5b4fc" /> Adaptive Clarification Agent ({clarifications.length} Hospital Questions)
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Answer any unstated hospital constraints below and re-run to dynamically refine NFR SLAs and SDLC scores.
+              </div>
+            </div>
+            <button
+              type="button"
+              className="sample-pill-btn"
+              style={{ borderColor: 'rgba(99, 102, 241, 0.5)', color: '#c7d2fe' }}
+              onClick={() => executePipeline({ answers: clarificationAnswers })}
+              disabled={isProcessing}
+            >
+              <RefreshCw size={13} /> Apply Clarifications &amp; Re-Analyze
+            </button>
+          </div>
+
+          <div className="clarif-grid">
+            {clarifications.map((q) => (
+              <div key={q.id} className="clarif-item">
+                <div className="clarif-topic">{q.topic}</div>
+                <div className="clarif-q">{q.question}</div>
+                <select
+                  className="clarif-select"
+                  value={clarificationAnswers[q.id] || ''}
+                  onChange={(e) =>
+                    setClarificationAnswers((prev) => ({
+                      ...prev,
+                      [q.id]: e.target.value
+                    }))
+                  }
+                >
+                  <option value="">-- Select hospital constraint (optional) --</option>
+                  {q.options.map((opt, idx) => (
+                    <option key={idx} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
         </section>
       )}
 
-      {/* DUAL AGENTS OUTPUT GRID */}
-      {requirementsData && sdlcData && (
+      {/* DUAL-AGENT MAIN OUTPUT GRID */}
+      {reqData && sdlcData && !pipelineResult?.failed && (
         <main className="agents-grid">
-          {/* PANEL 1: AGENT 1 - REQUIREMENTS SPECIFICATION */}
-          <article className="agent-panel agent-1" id="agent-1-panel">
+          {/* LEFT PANEL: AGENT 1 — REQUIREMENTS, QUALITY/CONFLICTS, RAG & RTM */}
+          <article className="agent-panel agent-1">
             <header className="agent-panel-header">
-              <span className="agent-meta-tag">Agent 1: Requirements Engineer</span>
-              <h2 className="agent-panel-title">Task (i): Software Requirements</h2>
-              <div className="panel-sub-row">
-                <span className="domain-badge">{requirementsData.domain}</span>
-                <span className="quality-badge">Quality Score: {requirementsData.qualityReport?.overallScore || 92}/100</span>
+              <span className="agent-meta-tag">Agent 1: Hospital Requirements &amp; Compliance Engineer</span>
+              <h2 className="agent-panel-title">Requirements, Quality Audit &amp; RAG Grounding</h2>
+              <div className="badge-row">
+                <span className="mini-badge">{reqData.domain}</span>
+                <span className="mini-badge good">Quality: {reqData.qualityReport.overallScore}/100</span>
+                <span className="mini-badge">Avg Confidence: {Math.round(reqData.metrics.averageConfidence * 100)}%</span>
+                <span className="mini-badge">HITL Approved: {approvedCount}/{totalReqs}</span>
               </div>
             </header>
 
-            {/* Functional Requirements */}
-            <div className="req-section-title">
-              <span>Functional Requirements ({requirementsData.functionalRequirements.length})</span>
-            </div>
-            <div className="req-items-list">
-              {requirementsData.functionalRequirements.map((fr) => (
-                <div key={fr.id} className="req-item-box" id={`fr-item-${fr.id}`}>
-                  <div className="req-item-header">
-                    <span className="req-id">{fr.id}</span>
-                    <span className={`priority-pill ${fr.priority.toLowerCase()}`}>
-                      {fr.priority} Priority
-                    </span>
-                  </div>
-                  <h3 className="req-item-title">{fr.title}</h3>
-                  <p className="req-item-desc">{fr.statement || fr.description}</p>
-                  {fr.acceptanceCriteria && fr.acceptanceCriteria.length > 0 && (
-                    <div className="req-ac-list">
-                      <span className="req-ac-label">Acceptance Criteria:</span>
-                      <ul>
-                        {fr.acceptanceCriteria.slice(0, 2).map((ac, idx) => (
-                          <li key={idx}>{ac}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ))}
+            {/* Sub-navigation */}
+            <div className="subtabs">
+              <button
+                type="button"
+                className={`subtab-btn ${agent1Tab === 'reqs' ? 'active' : ''}`}
+                onClick={() => setAgent1Tab('reqs')}
+              >
+                FR &amp; NFR ({totalReqs})
+              </button>
+              <button
+                type="button"
+                className={`subtab-btn ${agent1Tab === 'quality' ? 'active' : ''}`}
+                onClick={() => setAgent1Tab('quality')}
+              >
+                Ambiguities &amp; Conflicts ({reqData.qualityReport.ambiguities.length + reqData.qualityReport.conflicts.length})
+              </button>
+              <button
+                type="button"
+                className={`subtab-btn ${agent1Tab === 'rtm' ? 'active' : ''}`}
+                onClick={() => setAgent1Tab('rtm')}
+              >
+                RAG Sources &amp; RTM ({reqData.retrievedKnowledge.length})
+              </button>
             </div>
 
-            {/* Non-Functional Requirements */}
-            <div className="req-section-title" style={{ marginTop: '1.75rem' }}>
-              <span>Non-Functional Requirements ({requirementsData.nonFunctionalRequirements.length})</span>
-            </div>
-            <div className="req-items-list">
-              {requirementsData.nonFunctionalRequirements.map((nfr) => (
-                <div key={nfr.id} className="req-item-box" id={`nfr-item-${nfr.id}`}>
-                  <div className="req-item-header">
-                    <span className="req-id" style={{ color: 'var(--color-agent2-light)' }}>{nfr.id}</span>
-                    <span className="category-pill">
-                      {nfr.category}
-                    </span>
-                  </div>
-                  <h4 className="nfr-title">{nfr.title || nfr.category}</h4>
-                  <p className="req-item-desc">{nfr.statement || nfr.description}</p>
-                  {nfr.targetMetrics && (
-                    <div className="target-metric-box">
-                      <strong>Target Metric:</strong> {nfr.targetMetrics}
-                    </div>
-                  )}
+            {agent1Tab === 'reqs' && (
+              <>
+                <div className="section-heading">
+                  <span>Functional Requirements ({reqData.functionalRequirements.length})</span>
+                  <span>Human-in-the-Loop Controls</span>
                 </div>
-              ))}
-            </div>
+                <div className="req-list">
+                  {reqData.functionalRequirements.map((fr) => {
+                    const status = approvalMap[fr.id];
+                    return (
+                      <div
+                        key={fr.id}
+                        className={`req-card ${status === 'Approved' ? 'approved' : status === 'Flagged for Revision' ? 'flagged' : ''}`}
+                      >
+                        <div className="req-top">
+                          <span className="req-id">{fr.id}</span>
+                          <div className="badge-row" style={{ marginTop: 0 }}>
+                            <span className="mini-badge">{fr.priority}</span>
+                            <span className="mini-badge good">{Math.round((fr.confidence || 0.92) * 100)}% conf</span>
+                          </div>
+                        </div>
+                        <div className="req-title">{fr.title}</div>
+                        <p className="req-desc">{fr.statement}</p>
+
+                        <div className="badge-row">
+                          {(fr.citations || []).map((c) => (
+                            <span key={c} className="mini-badge cite">{c}</span>
+                          ))}
+                          {(fr.multiLabels || []).map((lbl) => (
+                            <span key={lbl} className="mini-badge">{lbl}</span>
+                          ))}
+                        </div>
+
+                        {fr.acceptanceCriteria?.length > 0 && (
+                          <div className="req-ac">
+                            <strong>Acceptance Criteria:</strong>
+                            <ul>
+                              {fr.acceptanceCriteria.slice(0, 2).map((ac, i) => (
+                                <li key={i}>{ac}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        <div className="hitl-bar">
+                          <span style={{ fontSize: '0.73rem', color: 'var(--text-dim)' }}>
+                            Status: <strong>{status || 'Pending Review'}</strong>
+                          </span>
+                          <div className="config-group">
+                            <button
+                              type="button"
+                              className={`hitl-btn approve ${status === 'Approved' ? 'active' : ''}`}
+                              onClick={() => handleRequirementDecision(fr.id, 'Approved')}
+                            >
+                              <CheckCircle size={12} /> Approve
+                            </button>
+                            <button
+                              type="button"
+                              className={`hitl-btn flag ${status === 'Flagged for Revision' ? 'active' : ''}`}
+                              onClick={() => handleRequirementDecision(fr.id, 'Flagged for Revision')}
+                            >
+                              <Flag size={12} /> Flag
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="section-heading" style={{ marginTop: '1.35rem' }}>
+                  <span>Non-Functional Requirements ({reqData.nonFunctionalRequirements.length})</span>
+                  <span>Quantified Hospital SLAs</span>
+                </div>
+                <div className="req-list">
+                  {reqData.nonFunctionalRequirements.map((nfr) => {
+                    const status = approvalMap[nfr.id];
+                    return (
+                      <div
+                        key={nfr.id}
+                        className={`req-card ${status === 'Approved' ? 'approved' : status === 'Flagged for Revision' ? 'flagged' : ''}`}
+                      >
+                        <div className="req-top">
+                          <span className="req-id" style={{ color: 'var(--indigo-light)' }}>{nfr.id}</span>
+                          <div className="badge-row" style={{ marginTop: 0 }}>
+                            <span className="mini-badge">{nfr.category}</span>
+                            <span className="mini-badge good">{Math.round((nfr.confidence || 0.94) * 100)}% conf</span>
+                          </div>
+                        </div>
+                        <div className="req-title">{nfr.title}</div>
+                        <p className="req-desc">{nfr.statement}</p>
+                        <div style={{ marginTop: '0.45rem', fontSize: '0.78rem', color: 'var(--teal-light)' }}>
+                          <strong>Target SLA:</strong> {nfr.targetMetrics}
+                        </div>
+                        <div className="badge-row">
+                          {(nfr.citations || []).map((c) => (
+                            <span key={c} className="mini-badge cite">{c}</span>
+                          ))}
+                        </div>
+                        <div className="hitl-bar">
+                          <span style={{ fontSize: '0.73rem', color: 'var(--text-dim)' }}>
+                            Status: <strong>{status || 'Pending Review'}</strong>
+                          </span>
+                          <div className="config-group">
+                            <button
+                              type="button"
+                              className={`hitl-btn approve ${status === 'Approved' ? 'active' : ''}`}
+                              onClick={() => handleRequirementDecision(nfr.id, 'Approved')}
+                            >
+                              <CheckCircle size={12} /> Approve
+                            </button>
+                            <button
+                              type="button"
+                              className={`hitl-btn flag ${status === 'Flagged for Revision' ? 'active' : ''}`}
+                              onClick={() => handleRequirementDecision(nfr.id, 'Flagged for Revision')}
+                            >
+                              <Flag size={12} /> Flag
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {agent1Tab === 'quality' && (
+              <div>
+                <div className="section-heading">
+                  <span>Vague / Ambiguous Terms Detected ({reqData.qualityReport.ambiguities.length})</span>
+                </div>
+                {reqData.qualityReport.ambiguities.length === 0 ? (
+                  <div className="req-card">
+                    <p className="req-desc">No unquantified vague terms detected. Requirements meet IEEE 830 testability criteria.</p>
+                  </div>
+                ) : (
+                  <div className="req-list">
+                    {reqData.qualityReport.ambiguities.map((a, idx) => (
+                      <div key={idx} className="req-card flagged">
+                        <div className="req-title">Ambiguous Term: &ldquo;{a.term}&rdquo;</div>
+                        <p className="req-desc">{a.finding}</p>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--teal-light)', marginTop: '0.35rem' }}>
+                          <strong>Fix:</strong> {a.recommendation}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="section-heading" style={{ marginTop: '1.25rem' }}>
+                  <span>Stakeholder &amp; Requirement Conflicts ({reqData.qualityReport.conflicts.length})</span>
+                </div>
+                {reqData.qualityReport.conflicts.length === 0 ? (
+                  <div className="req-card">
+                    <p className="req-desc">No conflicting stakeholder constraints detected in this scenario.</p>
+                  </div>
+                ) : (
+                  <div className="req-list">
+                    {reqData.qualityReport.conflicts.map((c) => (
+                      <div key={c.id} className="req-card flagged">
+                        <div className="req-id">{c.id}</div>
+                        <div className="req-title">{c.title}</div>
+                        <p className="req-desc">{c.description}</p>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--teal-light)', marginTop: '0.35rem' }}>
+                          <strong>Suggested Resolution:</strong> {c.resolution}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="section-heading" style={{ marginTop: '1.25rem' }}>
+                  <span>Clinical Risk Register ({reqData.riskRegister.length})</span>
+                </div>
+                <div className="req-list">
+                  {reqData.riskRegister.map((r) => (
+                    <div key={r.id} className="req-card">
+                      <div className="req-top">
+                        <span className="req-id">{r.id} • {r.category}</span>
+                        <span className="mini-badge">{r.severity}</span>
+                      </div>
+                      <p className="req-desc">{r.risk}</p>
+                      <p style={{ fontSize: '0.79rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                        <strong>Mitigation:</strong> {r.mitigation}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {agent1Tab === 'rtm' && (
+              <div>
+                <div className="section-heading">
+                  <span>Retrieved Healthcare Regulatory Clauses (RAG)</span>
+                </div>
+                <div className="req-list">
+                  {reqData.retrievedKnowledge.map((kb) => (
+                    <div key={kb.id} className="req-card">
+                      <div className="req-top">
+                        <span className="mini-badge cite">{kb.citation}</span>
+                        <span className="mini-badge good">{Math.round(kb.confidence * 100)}% match</span>
+                      </div>
+                      <div className="req-title">{kb.title}</div>
+                      <p className="req-desc">{kb.requirement}</p>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '0.3rem' }}>
+                        Jurisdiction: {kb.jurisdiction} • Effective: {kb.effectiveDate}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="section-heading" style={{ marginTop: '1.25rem' }}>
+                  <span>IEEE 830 Requirements Traceability Matrix (RTM)</span>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="compact-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Requirement</th>
+                        <th>Citations</th>
+                        <th>Verification Gate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reqData.traceabilityMatrix.map((row) => (
+                        <tr key={row.requirementId}>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--teal-light)' }}>{row.requirementId}</td>
+                          <td>{row.title}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{row.citations}</td>
+                          <td>{row.verificationStage}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </article>
 
-          {/* PANEL 2: AGENT 2 - SDLC SELECTION (MCDA RANKED ENGINE) */}
-          <article className="agent-panel agent-2" id="agent-2-panel">
+          {/* RIGHT PANEL: AGENT 2 — MCDA SDLC SELECTION, LIVE SLIDERS & 5-PHASE WORKFLOW */}
+          <article className="agent-panel agent-2">
             <header className="agent-panel-header">
-              <span className="agent-meta-tag">Agent 2: SDLC Architect (MCDA Engine)</span>
-              <h2 className="agent-panel-title">Task (ii): Complete SDLC Ranking</h2>
-              <p className="agent-panel-sub">
-                Evaluated against 8 weighted multi-criteria decision factors & deterministic rules
+              <span className="agent-meta-tag">Agent 2: Hospital SDLC Architect (Hybrid MCDA)</span>
+              <h2 className="agent-panel-title">SDLC Selection, Live Factor Tuning &amp; Workflow</h2>
+              <p style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>
+                Combines 8 quantitative clinical factors, MCDA utility scoring, and 6 deterministic governance rules.
               </p>
             </header>
 
-            {/* Primary Recommended Model Banner */}
-            <div className="sdlc-model-highlight">
-              <div className="sdlc-model-header-row">
-                <span className="sdlc-model-label">
-                  <Award size={14} style={{ display: 'inline', marginRight: '4px' }} />
-                  Top Recommendation
+            {/* Primary SDLC Recommendation + HITL Sign-Off */}
+            <div className="sdlc-highlight">
+              <div className="req-top">
+                <span style={{ fontSize: '0.76rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--indigo-light)', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Award size={14} /> Primary Recommendation
                 </span>
-                <span className="match-badge">{sdlcData.suitabilityScore} Suitability Match</span>
+                <span className="mini-badge good">{sdlcData.suitabilityScore} Suitability</span>
               </div>
-              <div className="sdlc-model-name">
-                {sdlcData.recommendedModel}
-              </div>
+              <div className="sdlc-name">{sdlcData.recommendedModel}</div>
               {sdlcData.primaryModel?.triggeredRule && (
-                <div className="rule-triggered-tag">
-                  Deterministic Rule: {sdlcData.primaryModel.triggeredRule}
-                </div>
+                <div className="rule-tag">Rule Matched: {sdlcData.primaryModel.triggeredRule}</div>
               )}
-              <p className="justification-text" style={{ marginTop: '0.85rem' }}>
-                {sdlcData.justification}
-              </p>
+              <p className="req-desc" style={{ marginTop: '0.45rem' }}>{sdlcData.justification}</p>
+
+              {/* Human-in-the-Loop SDLC Approval Gate */}
+              <div className="signoff-box">
+                <input
+                  type="text"
+                  className="role-select"
+                  style={{ width: 155 }}
+                  value={reviewerName}
+                  onChange={(e) => setReviewerName(e.target.value)}
+                  placeholder="Reviewer Name"
+                />
+                <button
+                  type="button"
+                  className={`hitl-btn approve ${sdlcSignOff?.status === 'Approved' ? 'active' : ''}`}
+                  onClick={() => handleSdlcSignOff('Approved')}
+                >
+                  <CheckCircle size={13} /> Approve SDLC
+                </button>
+                <button
+                  type="button"
+                  className={`hitl-btn flag ${sdlcSignOff?.status === 'Revision Requested' ? 'active' : ''}`}
+                  onClick={() => handleSdlcSignOff('Revision Requested')}
+                >
+                  <Flag size={13} /> Request Revision
+                </button>
+                {sdlcSignOff && (
+                  <span style={{ fontSize: '0.74rem', color: 'var(--teal-light)' }}>
+                    Recorded: {sdlcSignOff.status} ({sdlcSignOff.timestamp})
+                  </span>
+                )}
+              </div>
             </div>
 
-            {/* Complete MCDA Ranked List (Requirement 2, 4, 9) */}
-            <div className="mcda-ranking-section">
-              <div className="req-section-title">
-                <span>Complete MCDA Model Ranking ({sdlcData.rankedRecommendations.length} Models)</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Ranked Highest to Lowest</span>
-              </div>
-
-              <div className="mcda-table-container">
-                {sdlcData.rankedRecommendations.map((model) => {
-                  const isExpanded = expandedModelId === model.id;
-                  const isPrimary = model.rank === 1;
-
-                  return (
-                    <div 
-                      key={model.id} 
-                      className={`mcda-rank-card ${isPrimary ? 'primary-rank-card' : ''}`}
-                      id={`mcda-rank-card-${model.id}`}
+            {/* 6-Model MCDA Ranking */}
+            <div className="section-heading">
+              <span>Ranked SDLC Models (6 Evaluated)</span>
+              <span>Click any model for trade-offs</span>
+            </div>
+            <div>
+              {sdlcData.rankedRecommendations.map((model) => {
+                const isOpen = expandedModelId === model.id;
+                return (
+                  <div key={model.id} className={`mcda-card ${model.rank === 1 ? 'primary' : ''}`}>
+                    <div
+                      className="mcda-row"
+                      onClick={() => setExpandedModelId(isOpen ? null : model.id)}
                     >
-                      <div className="mcda-card-main-row" onClick={() => setExpandedModelId(isExpanded ? null : model.id)}>
-                        <div className="mcda-rank-badge">
-                          #{model.rank}
+                      <div className="rank-num">#{model.rank}</div>
+                      <div style={{ flexGrow: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.9rem' }}>{model.name}</strong>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{model.matchLevel}</span>
                         </div>
-                        <div className="mcda-model-info">
-                          <div className="mcda-model-title-row">
-                            <span className="mcda-model-name">{model.name}</span>
-                            <span className={`match-level-tag ${model.matchLevel.toLowerCase().replace(/\s+/g, '-')}`}>
-                              {model.matchLevel}
-                            </span>
-                          </div>
-
-                          {/* Progress score bar */}
-                          <div className="mcda-score-bar-wrapper">
-                            <div 
-                              className={`mcda-score-bar-fill ${model.score >= 90 ? 'high' : model.score >= 70 ? 'medium' : 'low'}`}
-                              style={{ width: `${model.score}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mcda-score-number">
-                          {model.suitabilityScore}
-                          <button className="expand-toggle-btn" aria-label="Toggle details">
-                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                          </button>
+                        <div className="score-bar-track">
+                          <div className="score-bar-fill" style={{ width: `${model.score}%` }} />
                         </div>
                       </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        {model.suitabilityScore}
+                        {isOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                      </div>
+                    </div>
 
-                      {/* Rationale & Tradeoffs */}
-                      <div className={`mcda-rationale-accordion ${isExpanded ? 'open' : ''}`}>
-                        <p className="mcda-rationale-text">
-                          <strong>Evaluation:</strong> {model.rationale}
-                        </p>
-                        <div className="pros-cons-grid">
-                          <div className="pro-box">
-                            <span className="pro-title">Key Strengths:</span>
-                            <ul>
-                              {model.pros.map((p, idx) => (
-                                <li key={idx}>+ {p}</li>
-                              ))}
+                    {isOpen && (
+                      <div className="mcda-details">
+                        <p className="req-desc">{model.rationale}</p>
+                        <div className="pros-cons">
+                          <div>
+                            <strong style={{ color: '#34d399' }}>Strengths:</strong>
+                            <ul style={{ marginLeft: '1rem', marginTop: '0.2rem', color: 'var(--text-muted)' }}>
+                              {model.pros.map((p, i) => <li key={i}>{p}</li>)}
                             </ul>
                           </div>
-                          <div className="con-box">
-                            <span className="con-title">Challenges / Constraints:</span>
-                            <ul>
-                              {model.cons.map((c, idx) => (
-                                <li key={idx}>- {c}</li>
-                              ))}
+                          <div>
+                            <strong style={{ color: '#f87171' }}>Constraints:</strong>
+                            <ul style={{ marginLeft: '1rem', marginTop: '0.2rem', color: 'var(--text-muted)' }}>
+                              {model.cons.map((c, i) => <li key={i}>{c}</li>)}
                             </ul>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Evaluated Decision Factors Breakdown (Requirement 3) */}
-            <div className="factors-evaluation-section">
-              <div className="req-section-title">
-                <span>
-                  <Sliders size={14} style={{ display: 'inline', marginRight: '4px' }} />
-                  Evaluated Decision Criteria (8 Factors)
-                </span>
-              </div>
-              <div className="factors-grid">
-                <div className="factor-tile">
-                  <span className="factor-label">Requirement Stability</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.requirementStability}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.requirementStability}%</span>
-                </div>
-                <div className="factor-tile">
-                  <span className="factor-label">Change Frequency</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.changeFrequency}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.changeFrequency}%</span>
-                </div>
-                <div className="factor-tile">
-                  <span className="factor-label">Regulatory Criticality</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.regulatoryCriticality}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.regulatoryCriticality}%</span>
-                </div>
-                <div className="factor-tile">
-                  <span className="factor-label">Security Risk</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.securityRisk}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.securityRisk}%</span>
-                </div>
-                <div className="factor-tile">
-                  <span className="factor-label">Technical Uncertainty</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.technicalUncertainty}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.technicalUncertainty}%</span>
-                </div>
-                <div className="factor-tile">
-                  <span className="factor-label">Failure Consequence</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.failureConsequence}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.failureConsequence}%</span>
-                </div>
-                <div className="factor-tile">
-                  <span className="factor-label">Continuous Deployment</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.continuousDeploymentNeed}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.continuousDeploymentNeed}%</span>
-                </div>
-                <div className="factor-tile">
-                  <span className="factor-label">Formal Verification</span>
-                  <div className="factor-bar"><div className="factor-fill" style={{ width: `${sdlcData.evaluatedFactors.formalVerificationNeed}%` }} /></div>
-                  <span className="factor-value">{sdlcData.evaluatedFactors.formalVerificationNeed}%</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Proposed SDLC Phases */}
-            <div style={{ marginTop: '1.75rem' }}>
-              <div className="req-section-title">
-                <span>Proposed Project Phases ({sdlcData.keyPhases.length})</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--color-agent2-light)' }}>{sdlcData.recommendedModel}</span>
-              </div>
-              <div className="phase-steps-list">
-                {sdlcData.keyPhases.map((phaseItem, pIdx) => (
-                  <div key={pIdx} className="phase-step-item">
-                    <span className="phase-number-box">Phase {pIdx + 1}</span>
-                    <div>
-                      <div className="phase-content-title">{phaseItem.phase}</div>
-                      <div className="phase-content-desc">{phaseItem.description}</div>
-                    </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                );
+              })}
+            </div>
+
+            {/* Interactive 8-Factor Sliders */}
+            <div className="section-heading" style={{ marginTop: '1.15rem' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                <Sliders size={13} /> Interactive Decision Factors (Drag to Re-Rank Live)
+              </span>
+            </div>
+            <div className="sliders-grid">
+              {FACTOR_LABELS.map(({ key, label }) => (
+                <div key={key} className="slider-tile">
+                  <div className="slider-top">
+                    <span>{label}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--teal-light)' }}>
+                      {sdlcData.evaluatedFactors[key]}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    className="slider-input"
+                    value={sdlcData.evaluatedFactors[key]}
+                    onChange={(e) => handleSliderChange(key, e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* 5-Phase Hospital Workflow */}
+            <div className="section-heading" style={{ marginTop: '1.25rem' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                <FileText size={13} /> Hospital-Specific 5-Phase Workflow
+              </span>
+              <span>{sdlcData.recommendedModel}</span>
+            </div>
+            <div>
+              {sdlcData.projectWorkflow.map((phase) => (
+                <div key={phase.phaseNumber} className="phase-card">
+                  <div className="phase-head">
+                    <strong>Phase {phase.phaseNumber}: {phase.phaseName}</strong>
+                    <span className="mini-badge">{phase.durationEstimate}</span>
+                  </div>
+                  <p style={{ color: 'var(--text-muted)', marginBottom: '0.35rem' }}>{phase.objective}</p>
+                  <div style={{ fontSize: '0.76rem', color: '#cbd5e1' }}>
+                    <strong>Roles:</strong> {phase.responsibleRoles.join(', ')}
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--teal-light)', marginTop: '0.2rem' }}>
+                    <strong>Compliance Gate:</strong> {phase.complianceCheckpoints}
+                  </div>
+                </div>
+              ))}
             </div>
           </article>
         </main>
+      )}
+
+      {/* LIVE MULTI-AGENT AUDIT & TELEMETRY TRAIL */}
+      {logs.length > 0 && (
+        <section className="audit-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800, fontSize: '0.95rem' }}>
+            <Activity size={16} color="#14b8a6" /> Multi-Agent Execution &amp; Human-in-the-Loop Audit Trail ({logs.length} Events)
+          </div>
+          <div className="audit-list">
+            {logs.map((log) => (
+              <div key={log.id} className={`audit-row ${log.status === 'warn' ? 'warn' : log.status === 'error' ? 'error' : ''}`}>
+                <span className="audit-time">{log.timestamp}</span>
+                <div>
+                  <strong>[{log.agent} • {log.phase}]</strong> {log.message}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

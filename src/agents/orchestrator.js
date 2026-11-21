@@ -1,10 +1,16 @@
 /**
- * Multi-Agent Orchestrator
- * Coordinates communication, execution sequence, shared state,
- * and human-in-the-loop validation between Agent 1 and Agent 2.
+ * Multi-Agent Hospital RE & SDLC Orchestrator
+ * Coordinates:
+ * 1. Privacy & Security Guardrail (PHI Masking + Prompt Injection Check)
+ * 2. Healthcare RAG Knowledge Base Retrieval
+ * 3. Agent 1: Requirement Extraction, Classification & Quality/Conflict Audit
+ * 4. Adaptive Clarification & Interview Agent
+ * 5. Agent 2: Hybrid MCDA + Deterministic SDLC Selection & Workflow Synthesis
+ * 6. Full timestamped Audit Trail for Human-in-the-Loop governance
  */
 
-import { RequirementAgent, validateScenario } from './requirementAgent.js';
+import { maskSensitivePHI, validateHospitalScenario } from './privacyGuard.js';
+import { RequirementAgent } from './requirementAgent.js';
 import { SdlcAgent } from './sdlcAgent.js';
 import { ClarificationAgent } from './clarificationAgent.js';
 
@@ -15,65 +21,110 @@ export class AgentOrchestrator {
     this.clarificationAgent = new ClarificationAgent();
   }
 
-  /**
-   * Run the complete multi-agent pipeline
-   */
-  async runPipeline(scenarioText, customFactors = {}, onLogUpdate = () => {}) {
-    const logs = [];
+  async runPipeline(rawScenarioText, options = {}) {
+    const {
+      stakeholderRole = 'cmo',
+      clarificationAnswers = {},
+      customFactors = {},
+      apiKey = '',
+      uploadedDocName = ''
+    } = options;
 
-    const addLog = (agentName, phase, message, details = null) => {
-      const entry = {
+    const logs = [];
+    const addLog = (agent, phase, message, status = 'ok') => {
+      logs.push({
+        id: `log-${logs.length + 1}`,
         timestamp: new Date().toLocaleTimeString(),
-        agent: agentName,
+        agent,
         phase,
         message,
-        details
-      };
-      logs.push(entry);
-      onLogUpdate([...logs]);
+        status
+      });
     };
 
-    // Step 1: Coordinator initializes workflow & validates input
-    addLog('Coordinator Agent', 'Initialization', 'Received scenario specification. Validating input syntax and initializing multi-agent collaboration context.');
-    
-    const validation = validateScenario(scenarioText);
+    // Step 1: Privacy Guardrail — PHI/PII Masking before any LLM or agent sees the text
+    const phiResult = maskSensitivePHI(rawScenarioText);
+    if (phiResult.totalRedacted > 0) {
+      const typesSummary = phiResult.redactions.map((r) => `${r.count}x ${r.type}`).join(', ');
+      addLog(
+        'Privacy & Security Guard',
+        'PHI Redaction',
+        `Masked ${phiResult.totalRedacted} sensitive PHI/PII token(s) (${typesSummary}) before agent processing.`,
+        'warn'
+      );
+    } else {
+      addLog('Privacy & Security Guard', 'PHI Redaction', 'Scanned input for PHI/PII identifiers (MRN, email, phone, Gov ID, DOB): 0 raw identifiers exposed.');
+    }
+
+    // Step 2: Prompt Injection & Domain Validation
+    const validation = validateHospitalScenario(phiResult.maskedText);
     if (!validation.isValid) {
-      addLog('Coordinator Agent', 'Validation Rejection', `Input validation failed: ${validation.reason}`);
-      throw new Error(`Pipeline execution rejected: ${validation.reason}`);
+      addLog('Coordinator Agent', 'Security & Validation Gate', validation.reason, 'error');
+      const err = new Error(validation.reason);
+      err.logs = logs;
+      throw err;
+    }
+    addLog(
+      'Coordinator Agent',
+      'Input Validation',
+      `Validated hospital specification${uploadedDocName ? ` (+ attached file: ${uploadedDocName})` : ''} for stakeholder role: ${stakeholderRole.toUpperCase()}.`
+    );
+
+    // Step 3: Agent 1 — RAG Retrieval + Requirement Extraction + Quality & Conflict Audit
+    const requirementResult = await this.requirementAgent.analyzeScenario(phiResult.maskedText, {
+      stakeholderRole,
+      clarificationAnswers,
+      apiKey
+    });
+
+    addLog(
+      'Healthcare RAG Retriever',
+      'Knowledge Grounding',
+      `Retrieved ${requirementResult.retrievedKnowledge.length} versioned regulatory clauses (${requirementResult.metrics.regulatoryStandardsMapped.join(', ')}).`
+    );
+
+    if (requirementResult.llmWarning) {
+      addLog('Requirement Extraction Agent', 'LLM Fallback', requirementResult.llmWarning, 'warn');
     }
 
-    // Step 2: Agent 1 - Requirement Engineering & Extraction
-    // Unified architectural call: analyzeScenario delegates to identifyRequirements
-    addLog('Requirement Extraction Agent', 'Elicitation', 'Parsing unstructured input, detecting domain context, and extracting atomic functional workflows.');
-    const requirementResult = await this.requirementAgent.analyzeScenario(scenarioText);
-    addLog('Requirement Extraction Agent', 'Categorization', `Extracted ${requirementResult.functionalRequirements.length} Functional Requirements and ${requirementResult.nonFunctionalRequirements.length} Non-Functional Requirements.`);
+    addLog(
+      'Requirement Extraction Agent',
+      'Extraction & Classification',
+      `Generated ${requirementResult.functionalRequirements.length} FRs & ${requirementResult.nonFunctionalRequirements.length} NFRs via ${requirementResult.generationMode} (Avg Confidence: ${Math.round(requirementResult.metrics.averageConfidence * 100)}%).`
+    );
 
-    // Step 3: Compliance & Security Sub-Agent
-    const regMapped = requirementResult.metrics?.regulatoryStandardsMapped?.join(', ') || 'Enterprise Security Standard';
-    addLog('Compliance & Security Agent', 'Regulatory Mapping', `Mapped requirements against regulatory frameworks: ${regMapped}.`);
+    addLog(
+      'Quality & Conflict Agent',
+      'IEEE 830 Audit',
+      `Quality Score: ${requirementResult.qualityReport.overallScore}/100. Found ${requirementResult.qualityReport.ambiguities.length} vague term(s) and ${requirementResult.qualityReport.conflicts.length} potential stakeholder conflict(s).`,
+      requirementResult.qualityReport.conflicts.length > 0 ? 'warn' : 'ok'
+    );
 
-    // Step 4: Quality & Ambiguity Inspector
-    addLog('Quality & Conflict Agent', 'Quality Audit', `Quality Score: ${requirementResult.qualityReport.overallScore}/100. Testability: ${requirementResult.qualityReport.testabilityRating}. Identified ${requirementResult.qualityReport.ambiguities.length} vague terms.`);
+    // Step 4: Adaptive Clarification Agent
+    const clarifications = this.clarificationAgent.generateClarifications(phiResult.maskedText, stakeholderRole);
+    const answeredCount = Object.keys(clarificationAnswers).length;
+    addLog(
+      'Clarification Interview Agent',
+      'Gap Analysis',
+      `Prepared ${clarifications.length} hospital clarification prompt(s) (${answeredCount} answered by stakeholder).`
+    );
 
-    // Step 5: Clarification Agent checks for gaps
-    const clarifications = this.clarificationAgent.generateClarifications(scenarioText, requirementResult.domain);
-    if (clarifications.length > 0) {
-      addLog('Clarification Agent', 'Adaptive Interview', `Generated ${clarifications.length} context-aware follow-up clarification prompts for stakeholder resolution.`);
-    }
+    // Step 5: Agent 2 — Hybrid MCDA + Deterministic SDLC Engine
+    const sdlcResult = this.sdlcAgent.evaluateSDLC(requirementResult, customFactors, clarificationAnswers);
+    addLog(
+      'SDLC Selection Agent',
+      'MCDA & Rule Engine',
+      `Ranked 6 SDLC models across 8 hospital factors. Top recommendation: ${sdlcResult.recommendedModel} (${sdlcResult.suitabilityScore}).`
+    );
 
-    // Step 6: Agent 2 - SDLC Selection & MCDA Evaluation
-    // Unified architectural call: evaluateSDLC delegates to identifySDLC
-    addLog('SDLC Selection Agent', 'Factor Analysis', 'Extracting project characteristics (stability, regulatory criticality, security risk, change frequency) for MCDA engine.');
-    const sdlcResult = this.sdlcAgent.evaluateSDLC(requirementResult, customFactors);
-    addLog('SDLC Selection Agent', 'Scoring & Ranking', `Ranked ${sdlcResult.rankedRecommendations.length} SDLC models evaluated. Top recommendation: ${sdlcResult.primaryModel.name} (${sdlcResult.primaryModel.suitabilityScore} match).`);
-
-    // Step 7: Workflow Customization
-    addLog('SDLC Selection Agent', 'Workflow Synthesis', `Generated ${sdlcResult.projectWorkflow.length} project-specific SDLC phases with custom deliverables, security activities, and compliance gates.`);
-
-    // Step 8: Coordinator completes orchestration
-    addLog('Coordinator Agent', 'Orchestration Complete', 'All agent outputs synthesized successfully. Ready for Human-in-the-Loop review and sign-off.');
+    addLog(
+      'Human-in-the-Loop Gate',
+      'Awaiting Sign-Off',
+      'Pipeline complete. Requirements and SDLC blueprint are ready for clinician & compliance officer review.'
+    );
 
     return {
+      phiResult,
       requirementResult,
       sdlcResult,
       clarifications,
